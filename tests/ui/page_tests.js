@@ -537,6 +537,61 @@
       expectEqual(pressed(calls), [onDevice(first, "disconnect"), onDevice(second, "disconnect")].sort(), "the buttons pressed");
     });
 
+    // A real mouse click on a driver (the tile card's icon), as on a
+    // dashboard: what it presses, and whether it opens more-info instead
+    const realClick = (el) => new Promise((resolve) => {
+      const r = el.getBoundingClientRect();
+      const id = Math.random().toString(36).slice(2);
+      (window.__svsClicks ??= {})[id] = resolve;
+      window.__svsClickDone ??= (done) => { window.__svsClicks[done]?.(); delete window.__svsClicks[done]; };
+      window.svsRealClick(JSON.stringify({ id, x: r.left + r.width / 2, y: r.top + r.height / 2 }));
+    });
+    const clickDriver = async (config, connected, which) => {
+      const calls = [];
+      const states = { ...hass().states };
+      for (const [id, on] of Object.entries(connected)) states[id] = { ...states[id], state: on ? "on" : "off" };
+      const fake = { ...hass(), states, callService: async (domain, service, data) => { calls.push({ domain, service, data }); } };
+      const el = document.createElement(config.type.slice("custom:".length));
+      el.setConfig(config);
+      el.hass = fake;
+      stage().append(el);
+      const moreInfo = [];
+      el.addEventListener("hass-more-info", (ev) => moreInfo.push(ev.detail?.entityId), true);
+      const card = await until(() => which(el), "the card to click");
+      const icon = await until(() => card.shadowRoot.querySelector("hui-tile-card")?.shadowRoot?.querySelector("ha-tile-icon"), "the driver");
+      await sleep(500);
+      await realClick(icon);
+      await sleep(800);
+      return { calls, moreInfo };
+    };
+    const expectPressed = ({ calls, moreInfo }, buttons) => {
+      if (moreInfo.length) throw new Error(`the click opened more-info for ${moreInfo.join(", ")}; pressed ${JSON.stringify(pressed(calls))}`);
+      expectEqual(pressed(calls), [...buttons].sort(), "the buttons pressed");
+    };
+
+    await test("real click: a subwoofer's driver disconnects it", async () => {
+      expectPressed(await clickDriver({ type: "custom:svs-subwoofer-card", entity: first },
+        { [onDevice(first, "connected")]: true }, (el) => el), [onDevice(first, "disconnect")]);
+    });
+
+    await test("real click: the panel's group driver disconnects both", async () => {
+      if (!groupVolume() || !second) throw new Error("a group of two subwoofers is needed");
+      expectPressed(await clickDriver(
+        { type: "custom:svs-subwoofer-panel-card", entity: groupVolume(), members: [{ entity: first }, { entity: second }], members_open: true },
+        { [onDevice(first, "connected")]: true, [onDevice(second, "connected")]: true },
+        (el) => el.shadowRoot.querySelector(".header svs-subwoofer-card"),
+      ), [onDevice(first, "disconnect"), onDevice(second, "disconnect")]);
+    });
+
+    await test("real click: a row's driver in the panel reconnects that subwoofer", async () => {
+      if (!groupVolume() || !second) throw new Error("a group of two subwoofers is needed");
+      expectPressed(await clickDriver(
+        { type: "custom:svs-subwoofer-panel-card", entity: groupVolume(), members: [{ entity: first }, { entity: second }], members_open: true, members_toggle: false },
+        { [onDevice(first, "connected")]: false, [onDevice(second, "connected")]: true },
+        (el) => el.shadowRoot.querySelectorAll(".members svs-subwoofer-card")[0],
+      ), [onDevice(first, "reconnect")]);
+    });
+
     await test("connect tap: a card's own Icon tap behavior is kept", async () => {
       const own = { action: "more-info" };
       const { iconTap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first, icon_tap_action: own }, {});

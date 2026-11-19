@@ -84,6 +84,23 @@ try {
 
   await send("Page.enable");
   await send("Runtime.enable");
+  // Real mouse clicks for the page's tests: the page calls
+  // svsRealClick('{"id", "x", "y"}'), the driver clicks there like a mouse,
+  // then calls the page's __svsClickDone(id)
+  await send("Runtime.addBinding", { name: "svsRealClick" });
+  socket.addEventListener("message", (message) => {
+    const data = JSON.parse(message.data);
+    if (data.method !== "Runtime.bindingCalled" || data.params.name !== "svsRealClick") return;
+    const { id, x, y } = JSON.parse(data.params.payload);
+    (async () => {
+      const mouse = { x, y, button: "left", clickCount: 1 };
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", ...mouse });
+      await sleep(60);
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...mouse });
+      await send("Runtime.evaluate", { expression: `window.__svsClickDone?.(${JSON.stringify(id)})` });
+    })().catch((err) => logs.push(`real click failed: ${err}`));
+  });
   // Logged in: the frontend reads its tokens from local storage
   const base = new URL(url).origin;
   const tokens = {
