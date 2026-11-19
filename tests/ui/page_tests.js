@@ -273,11 +273,12 @@
       expectEqual(tabs().map((t) => t.textContent), ["1"], "tab labels");
       // As on the xTool card: the main subwoofer's tile card options first,
       // untouched, then the SVS Subwoofer section, then the rows' section
-      const sections = [...el.shadowRoot.querySelectorAll(":scope > ha-expansion-panel")];
+      const top = [...el.shadowRoot.children];
+      const sections = top.filter((n) => n.localName === "ha-expansion-panel");
       expectEqual(sections.map((p) => p.querySelector('[slot="header"]')?.textContent), ["SVS Subwoofer", "Subwoofers in the collapsible section"], "the sections");
       if (!sections.every((p) => p.expanded)) throw new Error("a section starts collapsed");
       const [svsSection, rowsSection] = sections;
-      const cardAbove = el.shadowRoot.querySelector(":scope > svs-subwoofer-card-editor");
+      const cardAbove = await until(() => el.shadowRoot.getElementById("card")?.querySelector("svs-subwoofer-card-editor"), "the main subwoofer's editor");
       if (!cardAbove) throw new Error("the main subwoofer's tile card options are not at the top");
       if (!(cardAbove.compareDocumentPosition(svsSection) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error("the tile card options are not before the SVS Subwoofer section");
       if (cardAbove.shadowRoot.querySelector("ha-expansion-panel")?.style.display !== "none") throw new Error("the main subwoofer's options show the style options too");
