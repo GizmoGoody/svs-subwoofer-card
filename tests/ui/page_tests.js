@@ -241,6 +241,55 @@
       try { localStorage.removeItem(`svs-subwoofer-panel:${group}`); } catch (err) { /* no storage */ }
     });
 
+    // What the "states" context gives an element (as Home Assistant's parts
+    // that read it, such as the state content and its picker, ask for it)
+    const contextStates = (el) => new Promise((resolve) => {
+      const ev = new Event("context-request", { bubbles: true, composed: true });
+      Object.assign(ev, { context: "states", subscribe: false, callback: (states) => resolve(states) });
+      el.dispatchEvent(ev);
+      setTimeout(() => resolve(undefined), 3000);
+    });
+
+    await test("state content: every card shows its preset, and the panel's cards do not highlight on hover", async () => {
+      const group = groupVolume();
+      if (!group || !second) throw new Error("a group of two subwoofers is needed");
+      const states = { ...hass().states };
+      for (const id of [group, first, second]) states[onDevice(id, "preset")] = { ...states[onDevice(id, "preset")], state: "MEDIUM" };
+      const panel = document.createElement("svs-subwoofer-panel-card");
+      panel.setConfig({ ...deployedPanel(group, first, second), members_open: true, members_toggle: false });
+      panel.hass = { ...hass(), states };
+      stage().append(panel);
+      const cards = await until(() => {
+        const all = [panel.shadowRoot.querySelector(".header svs-subwoofer-card"), ...panel.shadowRoot.querySelectorAll(".members svs-subwoofer-card")];
+        return all.length === 3 && all.every((c) => c?.shadowRoot.querySelector("hui-tile-card")?.shadowRoot) && all;
+      }, "the three cards");
+      for (const card of cards) {
+        const tile = card.shadowRoot.querySelector("hui-tile-card");
+        const name = card._config?.name;
+        await until(() => /MEDIUM/.test(deepText(tile.shadowRoot)), `${name}: the preset in the state content`)
+          .catch(() => { throw new Error(`${name}'s state content says: ${deepText(tile.shadowRoot)}`); });
+        const hover = getComputedStyle(tile).getPropertyValue("--ha-ripple-hover-opacity").trim();
+        if (hover !== "0") throw new Error(`${name} highlights on hover (--ha-ripple-hover-opacity: ${hover || "unset"})`);
+      }
+    });
+
+    await test("state content picker: the editors' states context has the subwoofer attributes", async () => {
+      const { el } = hosted("svs-subwoofer-card-editor");
+      el.setConfig({ type: "custom:svs-subwoofer-card", entity: first });
+      const tile = await tileEditorIn(el);
+      const states = await contextStates(mainForm(tile));
+      const attributes = Object.keys(states?.[first]?.attributes ?? {});
+      for (const name of ["preset", "standby_mode"]) {
+        if (!attributes.includes(name)) throw new Error(`the card editor's states context has no ${name}: ${attributes.join(", ")}`);
+      }
+      stage().replaceChildren();
+      const panel = hosted("svs-subwoofer-panel-card-editor").el;
+      panel.setConfig({ type: "custom:svs-subwoofer-panel-card", entity: groupVolume() ?? first, members: [{ entity: first }] });
+      const row = await tileEditorIn(panel);
+      const rowAttributes = Object.keys((await contextStates(mainForm(row)))?.[first]?.attributes ?? {});
+      if (!rowAttributes.includes("preset")) throw new Error(`the row editor's states context has no preset: ${rowAttributes.join(", ")}`);
+    });
+
     await test("card editor: a removed state content stays removed", async () => {
       const { el, saved } = hosted("svs-subwoofer-card-editor");
       el.setConfig({ type: "custom:svs-subwoofer-card", entity: first, state_content: ["state", "preset", "standby_mode"] });

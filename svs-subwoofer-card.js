@@ -164,6 +164,45 @@ function withSubwooferAttributes(hass, entityId, picture) {
 }
 const unavailable = (stateObj) => !stateObj || stateObj.state === "unavailable";
 
+/**
+ * Answers Home Assistant's "states" context inside an element, as Home
+ * Assistant's own provider does (the Lit context protocol), with the states
+ * the card changed. Parts that read a state from the context instead of from
+ * hass, such as the tile card's state content and its editor's State content
+ * picker, then see the subwoofer attributes. A request made before the
+ * states are known is answered once they are. (The same as the xTool card's.)
+ */
+class StatesProvider {
+  constructor(host) {
+    this._unsubscribes = new Map();
+    this._waiting = [];
+    host.addEventListener("context-request", (ev) => {
+      if (ev.context !== "states") return;
+      ev.stopPropagation();
+      if (this._states === undefined) this._waiting.push(ev);
+      else this._answer(ev);
+    });
+  }
+
+  _answer(ev) {
+    if (!ev.subscribe) {
+      ev.callback(this._states);
+      return;
+    }
+    // The consumer expects the same unsubscribe function with every value
+    const unsubscribe = () => this._unsubscribes.delete(ev.callback);
+    this._unsubscribes.set(ev.callback, unsubscribe);
+    ev.callback(this._states, unsubscribe);
+  }
+
+  set states(states) {
+    if (states === this._states) return;
+    this._states = states;
+    for (const ev of this._waiting.splice(0)) this._answer(ev);
+    for (const [callback, unsubscribe] of this._unsubscribes) callback(states, unsubscribe);
+  }
+}
+
 const fire = (el, type, detail) =>
   el.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
 
@@ -1513,6 +1552,7 @@ class SvsCard extends HTMLElement {
         <span class="badge" role="img"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${BT_OFF}"/></svg></span>
       </div>`;
     this._frame = this.shadowRoot.querySelector(".frame");
+    this._statesProvider = new StatesProvider(this._frame);
     this._canvas = this.shadowRoot.querySelector("canvas");
     this._badge = this.shadowRoot.querySelector(".badge");
     this._standbyBadge = this.shadowRoot.querySelector(".standby-badge");
@@ -1602,7 +1642,7 @@ class SvsCard extends HTMLElement {
     this._tile = document.createElement("hui-tile-card");
     this._tile.classList.add("tile");
     this._tile.setConfig(tile);
-    if (this._hass) this._tile.hass = this._innerHass(this._hass);
+    if (this._hass) this._setTileHass(this._hass);
     if (this._preview !== undefined) this._tile.preview = this._preview;
     if (this._layoutValue !== undefined) this._tile.layout = this._layoutValue;
     this._frame.insertBefore(this._tile, this._badge);
@@ -1612,7 +1652,7 @@ class SvsCard extends HTMLElement {
   set hass(hass) {
     const before = this._hass;
     this._hass = hass;
-    if (this._tile) this._tile.hass = this._innerHass(hass);
+    if (this._tile) this._setTileHass(hass);
     this._watchChanges(before, hass);
     this._updateBadge();
     this._sizeDriver();
@@ -1736,6 +1776,13 @@ class SvsCard extends HTMLElement {
     return { ...hass, states: { ...hass.states, [entity]: this._innerState } };
   }
 
+  /** The tile card's hass, and the same states for the parts that read them from the states context. */
+  _setTileHass(hass) {
+    const inner = this._innerHass(hass);
+    this._statesProvider.states = inner.states;
+    this._tile.hass = inner;
+  }
+
   // The driver picture inside the tile card's icon; undefined if the tile
   // card ever changes how it shows a picture (the card then just does not move it)
   get _driver() {
@@ -1781,7 +1828,7 @@ class SvsCard extends HTMLElement {
     const dragColor = active ? color : undefined;
     if (dragColor !== this._dragColor) {
       this._dragColor = dragColor;
-      if (this._tile && this._hass) this._tile.hass = this._innerHass(this._hass);
+      if (this._tile && this._hass) this._setTileHass(this._hass);
     }
     if (!active) this._slideEnded = Date.now();
     this._sizeDriver(level);
@@ -2427,6 +2474,7 @@ class SvsCardEditor extends HTMLElement {
           <ha-form id="form"></ha-form>
         </div>
       </ha-expansion-panel>`;
+    this._statesProvider = new StatesProvider(this.shadowRoot);
     this._finishForm = this.shadowRoot.getElementById("finish");
     this._form = this.shadowRoot.getElementById("form");
     for (const form of [this._finishForm, this._form]) {
@@ -2466,7 +2514,7 @@ class SvsCardEditor extends HTMLElement {
     this._hass = hass;
     this._finishForm.hass = hass;
     this._form.hass = hass;
-    if (this._tileEditor) this._tileEditor.hass = withSubwooferAttributes(hass, this._config?.entity);
+    if (this._tileEditor) this._setTileEditorHass();
   }
 
   set lovelace(lovelace) {
@@ -2479,6 +2527,14 @@ class SvsCardEditor extends HTMLElement {
     this._render();
     this._setTileEditorConfig();
     if (JSON.stringify(this._config) !== JSON.stringify(config)) this._fire();
+  }
+
+  /** The tile editor's hass, and the states context its State content picker reads, with the subwoofer attributes. */
+  _setTileEditorHass() {
+    if (!this._hass || !this._tileEditor) return;
+    const hass = withSubwooferAttributes(this._hass, this._config?.entity);
+    this._statesProvider.states = hass.states;
+    this._tileEditor.hass = hass;
   }
 
   async _setTileEditorConfig() {
@@ -2501,13 +2557,14 @@ class SvsCardEditor extends HTMLElement {
           this._fire();
         });
         editor.svsEntities = svsVolumes(this._hass);
-        editor.hass = withSubwooferAttributes(this._hass, this._config.entity);
         if (this._lovelace) editor.lovelace = this._lovelace;
         this.shadowRoot.getElementById("tile").replaceWith(editor);
         this._tileEditor = editor;
+        this._setTileEditorHass();
       })();
       await this._loading;
     }
+    this._setTileEditorHass();
     this._tileEditor.setConfig(tileConfig(this._config));
   }
 
@@ -2640,6 +2697,7 @@ class SvsPanelCardEditor extends HTMLElement {
     this._rowsSlot = this.shadowRoot.getElementById("rows");
     this._tabs = this.shadowRoot.querySelector(".tabs");
     this._body = this.shadowRoot.getElementById("body");
+    this._statesProvider = new StatesProvider(this._body);
     const add = this.shadowRoot.getElementById("add");
     add.path = MDI.plus;
     add.label = "Add a subwoofer";
@@ -2653,7 +2711,7 @@ class SvsPanelCardEditor extends HTMLElement {
     if (this._styleEditor) this._styleEditor.hass = hass;
     if (this._rowsForm) this._rowsForm.hass = hass;
     if (this._addForm) this._addForm.hass = hass;
-    if (this._memberEditor) this._memberEditor.hass = withSubwooferAttributes(hass, this._member?.entity);
+    if (this._memberEditor) this._setMemberHass(this._memberEditor, this._member?.entity);
     if (!this._built) this._show();
   }
 
@@ -2794,6 +2852,13 @@ class SvsPanelCardEditor extends HTMLElement {
     this._rowsForm.data = { members_toggle: this._config.members_toggle !== false, members_open: this._config.members_open !== false };
   }
 
+  /** A row's tile editor's hass, and the states context it reads, with the subwoofer attributes. */
+  _setMemberHass(editor, entity) {
+    const hass = withSubwooferAttributes(this._hass, entity);
+    this._statesProvider.states = hass.states;
+    editor.hass = hass;
+  }
+
   // Adding a subwoofer: the subwoofers not yet in the panel, by name
   _showAdd() {
     if (!this._addForm) {
@@ -2892,9 +2957,9 @@ class SvsPanelCardEditor extends HTMLElement {
       // The tile editor shows a change (a removed state content, an added
       // feature) only once its configuration is handed back
       editor.setConfig(ev.detail.config);
-      if (ev.detail.config.entity !== member.entity) editor.hass = withSubwooferAttributes(this._hass, ev.detail.config.entity);
+      if (ev.detail.config.entity !== member.entity) this._setMemberHass(editor, ev.detail.config.entity);
     });
-    editor.hass = withSubwooferAttributes(this._hass, member.entity);
+    this._setMemberHass(editor, member.entity);
     if (this._lovelace) editor.lovelace = this._lovelace;
     editor.setConfig(tileConfig({ ...member, type: "tile" }));
     this._memberEditor = editor;
