@@ -553,9 +553,19 @@ class SvsVolume extends HTMLElement {
             var(--loupe);
           box-shadow: inset 0 0 3px rgba(0,0,0,.5);
         }
+        /* Subwoofers at different volumes (a group in the panel card): the
+           loupe stretches from the quietest to the loudest */
+        :host([svs-console]) .loupe.span {
+          left: calc(2px + var(--lo) * (100% - var(--size) - 4px));
+          width: calc(var(--size) + (var(--hi) - var(--lo)) * (100% - var(--size) - 4px));
+          transform: translate(0, -50%);
+        }
+        :host([svs-console]) .loupe.span, :host([svs-console]) .loupe.span::after { border-radius: var(--ha-border-radius-pill, 9999px); }
+        .handle.lo { display: none; }
+        .control.span .handle.lo { display: block; }
       </style>
       <div class="control" role="slider" tabindex="0" aria-label="Volume">
-        <div class="zones"></div><div class="fill"></div><div class="ticks"></div><div class="handle"></div><div class="loupe"></div>
+        <div class="zones"></div><div class="fill"></div><div class="ticks"></div><div class="handle lo"></div><div class="handle hi"></div><div class="loupe"></div>
       </div>
       <span class="tooltip" aria-hidden="true"></span>`;
     this._control = this.shadowRoot.querySelector(".control");
@@ -605,30 +615,71 @@ class SvsVolume extends HTMLElement {
     return sliderRange(this._config, this._hass?.states[this._entity]);
   }
 
+  /**
+   * The subwoofers' volumes when they differ: on a group in the panel card,
+   * the card lists its rows' volumes (svs_member_volumes); undefined when
+   * there are fewer than two or they are all the same.
+   */
+  get _span() {
+    const ids = this._hass?.states[this._entity]?.attributes?.svs_member_volumes;
+    if (!Array.isArray(ids)) return undefined;
+    const members = ids
+      .map((id) => ({ id, value: this._pendingSpan?.values[id] ?? Number(this._hass.states[id]?.state) }))
+      .filter((m) => Number.isFinite(m.value));
+    if (members.length < 2) return undefined;
+    const values = members.map((m) => m.value);
+    const lo = Math.min(...values), hi = Math.max(...values);
+    return lo === hi ? undefined : { lo, hi, members };
+  }
+
+  /** The span moved by the drag so far, in steps, never past the volume's limits. */
+  _shifted({ at, span }) {
+    const a = this._hass?.states[this._entity]?.attributes ?? {};
+    const step = a.step ?? 1;
+    const raw = Math.round(((this._dragging ?? at) - at) / step) * step;
+    const delta = Math.max((a.min ?? -60) - span.lo, Math.min((a.max ?? 0) - span.hi, raw));
+    return {
+      lo: span.lo + delta, hi: span.hi + delta, delta,
+      members: span.members.map((m) => ({ id: m.id, value: m.value + delta })),
+    };
+  }
+
   _render() {
     if (!this._hass || !this._config || !this._context) return;
     const stateObj = this._hass.states[this._entity];
     const { min, max } = this._limits;
+    if (this._pendingSpan && (Date.now() > this._pendingSpan.until ||
+      Object.entries(this._pendingSpan.values).every(([id, v]) => Number(this._hass.states[id]?.state) === v))) {
+      this._pendingSpan = undefined;
+    }
+    const span = this._spanStart ? this._shifted(this._spanStart) : this._span;
     const reported = Number(stateObj?.state);
     // A value just sent stays shown until the subwoofer reports it (or for
     // 4 seconds), so the slider does not jump back while the command runs
     if (this._pending !== undefined && (reported === this._pending || Date.now() > this._pendingUntil)) {
       this._pending = undefined;
     }
-    const value = this._dragging ?? this._pending ?? reported;
+    const value = span ? span.hi : this._dragging ?? this._pending ?? reported;
     const known = Number.isFinite(value);
     const at = (v) => ((v - min) / (max - min)) * 100;
-    const pct = known ? Math.max(0, Math.min(100, at(value))) : 0;
+    const clampPct = (v) => Math.max(0, Math.min(100, at(v)));
+    const pct = known ? clampPct(value) : 0;
+    const loPct = span ? clampPct(span.lo) : pct;
     const ranged = this._ranges.length > 0;
-    const key = JSON.stringify([pct, ranged, this._ranges, unavailable(stateObj)]);
+    const key = JSON.stringify([pct, loPct, !!span, ranged, this._ranges, unavailable(stateObj)]);
     if (key === this._key) return;
     this._key = key;
     const c = this._control;
     c.classList.toggle("ranged", ranged);
+    c.classList.toggle("span", !!span);
     c.classList.toggle("disabled", unavailable(stateObj));
     c.setAttribute("aria-valuemin", min);
     c.setAttribute("aria-valuemax", max);
     if (known) c.setAttribute("aria-valuenow", value);
+    const unit = stateObj?.attributes.unit_of_measurement;
+    const text = span ? `${span.lo} to ${span.hi}${unit ? ` ${unit}` : ""}` : unit ? `${value} ${unit}` : String(value);
+    if (span) c.setAttribute("aria-valuetext", text);
+    else c.removeAttribute("aria-valuetext");
     const zones = c.querySelector(".zones"), ticks = c.querySelector(".ticks");
     zones.replaceChildren();
     ticks.replaceChildren();
@@ -651,20 +702,29 @@ class SvsVolume extends HTMLElement {
     }
     const color = ranged && known ? rangeColor(this._ranges, value) : undefined;
     c.style.setProperty("--fill", color ? cssColor(color) : "var(--feature-color)");
-    c.querySelector(".fill").style.width = `${pct}%`;
-    const handle = c.querySelector(".handle");
+    // With a span, the bar covers the span, with a handle at each end
+    const fill = c.querySelector(".fill");
+    fill.style.left = span ? `${loPct}%` : "";
+    fill.style.width = `${pct - (span ? loPct : 0)}%`;
+    const handle = c.querySelector(".handle.hi");
     handle.style.left = `${pct}%`;
     handle.style.display = known ? "" : "none";
+    c.querySelector(".handle.lo").style.left = `${loPct}%`;
     // The loupe shows the color it is on, at full strength: the volume's
-    // threshold color, or the feature color without thresholds
+    // threshold color, or the feature color without thresholds. Stretched
+    // over a span, it runs from the quietest's color to the loudest's.
     c.style.setProperty("--at", `${pct}%`);
-    this.style.setProperty("--svs-tip", String(pct / 100));
-    if (known) {
-      const unit = stateObj?.attributes.unit_of_measurement;
-      this._tooltip.textContent = unit ? `${value} ${unit}` : String(value);
-    }
-    c.style.setProperty("--loupe", color ? cssColor(color) : "var(--feature-color)");
-    c.querySelector(".loupe").style.visibility = known ? "" : "hidden";
+    c.style.setProperty("--lo", String(loPct / 100));
+    c.style.setProperty("--hi", String(pct / 100));
+    this.style.setProperty("--svs-tip", String((span ? (pct + loPct) / 2 : pct) / 100));
+    if (known) this._tooltip.textContent = text;
+    const loColor = span && ranged ? rangeColor(this._ranges, span.lo) : color;
+    c.style.setProperty("--loupe", span && loColor !== color
+      ? `linear-gradient(90deg, ${cssColor(loColor ?? "primary")}, ${cssColor(color ?? "primary")})`
+      : color ? cssColor(color) : "var(--feature-color)");
+    const loupe = c.querySelector(".loupe");
+    loupe.classList.toggle("span", !!span);
+    loupe.style.visibility = known ? "" : "hidden";
   }
 
   _valueAt(ev) {
@@ -681,6 +741,9 @@ class SvsVolume extends HTMLElement {
     this._control.focus({ preventScroll: true });
     this._control.setPointerCapture(ev.pointerId);
     this._dragging = this._valueAt(ev);
+    // Subwoofers at different volumes move together, by the drag's distance
+    const span = this._span;
+    this._spanStart = span ? { at: this._dragging, span } : undefined;
     this._moved(true);
   }
 
@@ -692,7 +755,21 @@ class SvsVolume extends HTMLElement {
 
   _up(ev) {
     if (this._dragging === undefined) return;
-    const value = ev ? this._valueAt(ev) : this._dragging;
+    if (ev) this._dragging = this._valueAt(ev);
+    this._commit();
+  }
+
+  /** Sends where the drag or the keys ended. */
+  _commit() {
+    if (this._spanStart) {
+      const moved = this._shifted(this._spanStart);
+      this._spanStart = undefined;
+      this._dragging = undefined;
+      if (moved.delta) this._sendSpan(moved.members);
+      this._moved(false, moved.hi);
+      return;
+    }
+    const value = this._dragging;
     this._dragging = undefined;
     this._send(value);
     this._moved(false, value);
@@ -710,9 +787,15 @@ class SvsVolume extends HTMLElement {
     const delta = { ArrowRight: step, ArrowUp: step, ArrowLeft: -step, ArrowDown: -step, PageUp: 5 * step, PageDown: -5 * step }[ev.key];
     if (delta === undefined) return;
     ev.preventDefault();
-    const current = this._dragging ?? Number(this._hass.states[this._entity]?.state);
-    if (!Number.isFinite(current)) return;
-    this._dragging = Math.max(min, Math.min(max, current + delta));
+    const span = this._spanStart ? undefined : this._span;
+    if (span) this._spanStart = { at: 0, span };
+    if (this._spanStart) {
+      this._dragging = (this._dragging ?? 0) + delta;
+    } else {
+      const current = this._dragging ?? Number(this._hass.states[this._entity]?.state);
+      if (!Number.isFinite(current)) return;
+      this._dragging = Math.max(min, Math.min(max, current + delta));
+    }
     this._moved(true);
     clearTimeout(this._keyTimer);
     this._keyTimer = setTimeout(() => this._keyUp(), 600);
@@ -720,11 +803,8 @@ class SvsVolume extends HTMLElement {
 
   _keyUp() {
     if (this._dragging === undefined) return;
-    const value = this._dragging;
-    this._dragging = undefined;
     clearTimeout(this._keyTimer);
-    this._send(value);
-    this._moved(false, value);
+    this._commit();
     this._tooltip.classList.add("visible");
     this._showTooltip(false, 500);
   }
@@ -732,22 +812,34 @@ class SvsVolume extends HTMLElement {
   // Tells the SVS card the slider is moving, so its driver can shake
   _moved(active, value = this._dragging) {
     this._key = undefined;
+    const level = this._spanStart ? this._shifted(this._spanStart).hi : value;
     this._render();
     this._showTooltip(active);
     const { min, max } = this._limits;
-    const color = this._ranges.length ? rangeColor(this._ranges, value) : undefined;
-    fire(this, "svs-volume-input", { active, level: (value - min) / (max - min), color });
+    const color = this._ranges.length ? rangeColor(this._ranges, level) : undefined;
+    fire(this, "svs-volume-input", { active, level: (level - min) / (max - min), color });
   }
 
   _send(value) {
     this._pending = value;
     this._pendingUntil = Date.now() + 4000;
+    this._rerenderLater();
+    this._hass.callService("number", "set_value", { entity_id: this._entity, value });
+  }
+
+  /** Sets each subwoofer's own volume, so their differences stay as they were. */
+  _sendSpan(members) {
+    this._pendingSpan = { values: Object.fromEntries(members.map((m) => [m.id, m.value])), until: Date.now() + 4000 };
+    this._rerenderLater();
+    for (const m of members) this._hass.callService("number", "set_value", { entity_id: m.id, value: m.value });
+  }
+
+  _rerenderLater() {
     clearTimeout(this._pendingTimer);
     this._pendingTimer = setTimeout(() => {
       this._key = undefined;
       this._render();
     }, 4100);
-    this._hass.callService("number", "set_value", { entity_id: this._entity, value });
   }
 }
 
@@ -1562,7 +1654,10 @@ class SvsCard extends HTMLElement {
   _level(value) {
     const id = this._entities.volume;
     const stateObj = id ? this._hass?.states[id] : undefined;
-    const v = value ?? Number(stateObj?.state);
+    // A group whose subwoofers' volumes differ: the loudest
+    const rows = this._config?._member_entities ? this._rowsMixed("volume")?.map(Number).filter(Number.isFinite) : undefined;
+    const own = Number(stateObj?.state);
+    const v = value ?? (!Number.isFinite(own) && rows?.length ? Math.max(...rows) : own);
     if (!Number.isFinite(v)) return 0;
     // The same range as the card's volume slider, if it has one
     const slider = (this._config?.features ?? []).find((f) => f.type === "custom:svs-subwoofer-volume");
@@ -1613,12 +1708,29 @@ class SvsCard extends HTMLElement {
     if (!stateObj) return hass;
     const picture = driverPicture(this._config.driver_ring === false ? null : this._ringColor());
     const extra = subwooferAttributes(hass, entity);
-    const extraKey = JSON.stringify(extra);
+    // A group in the panel card whose subwoofers disagree: the state content
+    // shows their presets and standby modes, and the range of their volumes,
+    // and the volume slider gets their volumes
+    const rows = this._config._member_entities;
+    let state = stateObj.state;
+    if (rows?.length) {
+      extra.svs_member_volumes = rows;
+      const preset = this._rowsMixed("preset");
+      if (preset && !extra.preset) extra.preset = preset.join(" / ");
+      const standby = this._rowsMixed("standby");
+      if (standby && !extra.standby_mode) extra.standby_mode = standby.map(standbyLabel).join(" / ");
+      const volumes = this._rowsMixed("volume")?.map(Number).filter(Number.isFinite);
+      if (volumes?.length > 1 && !Number.isFinite(Number(state))) {
+        const unit = stateObj.attributes.unit_of_measurement;
+        state = `${Math.min(...volumes)} to ${Math.max(...volumes)}${unit ? ` ${unit}` : ""}`;
+      }
+    }
+    const extraKey = JSON.stringify([extra, state]);
     if (this._sourceState !== stateObj || this._lastPicture !== picture || this._lastExtra !== extraKey) {
       this._sourceState = stateObj;
       this._lastPicture = picture;
       this._lastExtra = extraKey;
-      this._innerState = { ...stateObj, attributes: { ...stateObj.attributes, ...extra, entity_picture: picture } };
+      this._innerState = { ...stateObj, state, attributes: { ...stateObj.attributes, ...extra, entity_picture: picture } };
     }
     return { ...hass, states: { ...hass.states, [entity]: this._innerState } };
   }
@@ -1697,6 +1809,20 @@ class SvsCard extends HTMLElement {
    * The connection sensors the badge shows: the subwoofer's own, or for a
    * group in the panel card, those of the subwoofers in its rows.
    */
+  /**
+   * For a group in the panel card: its rows' different states for a role
+   * (preset, standby or volume), in row order, or undefined when they all
+   * agree (or fewer than two have one).
+   */
+  _rowsMixed(role) {
+    const states = (this._config?._member_entities ?? [])
+      .map((id) => sibling(this._hass, id, role))
+      .map((id) => id && this._hass?.states[id]?.state)
+      .filter((s) => s && s !== "unavailable" && s !== "unknown");
+    const distinct = [...new Set(states)];
+    return states.length > 1 && distinct.length > 1 ? distinct : undefined;
+  }
+
   get _connectionSensors() {
     const own = this._entities.connected;
     if (own) return [own];
@@ -1724,10 +1850,13 @@ class SvsCard extends HTMLElement {
     // The standby mode's first letter: A (Auto On), O (On), T (Trigger)
     const standby = this._entities.standby;
     const value = standby ? this._hass?.states[standby]?.state : undefined;
-    const letter = this._config?.standby_badge && value && !NOT_PRESETS.includes(value) && value !== "unavailable" && value !== "unknown"
-      ? value.trim()[0].toUpperCase() : "";
+    // M (Mixed) on a group in the panel card whose subwoofers' modes differ
+    const mixed = this._config?._member_entities ? this._rowsMixed("standby") : undefined;
+    const letter = !this._config?.standby_badge ? ""
+      : mixed ? "M"
+        : value && !NOT_PRESETS.includes(value) && value !== "unavailable" && value !== "unknown" ? value.trim()[0].toUpperCase() : "";
     this._standbyBadge.textContent = letter;
-    this._standbyBadge.title = letter ? `Standby mode: ${standbyLabel(value)}` : "";
+    this._standbyBadge.title = !letter ? "" : mixed ? `Standby mode: Mixed (${mixed.map(standbyLabel).join(", ")})` : `Standby mode: ${standbyLabel(value)}`;
     this._standbyBadge.classList.toggle("on", !!letter);
     if (show || letter) this._placeBadge();
   }

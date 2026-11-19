@@ -98,6 +98,8 @@ try {
       await send("Input.dispatchMouseEvent", { type: "mousePressed", ...mouse });
       await sleep(60);
       await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...mouse });
+      // Away again, so no later test sees a control hovered
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1270, y: 2390 });
       await send("Runtime.evaluate", { expression: `window.__svsClickDone?.(${JSON.stringify(id)})` });
     })().catch((err) => logs.push(`real click failed: ${err}`));
   });
@@ -163,7 +165,7 @@ try {
           report.push({ ...result, name: `${scheme}: ${result.name}` });
         }
       }
-      const shown = await evaluate("window.svsUiGallery()");
+      const shown = await evaluate(`window.svsUiGallery(${label === "new"})`);
       writeFileSync(join(outDir, `gallery-${label}-${scheme}.png`), Buffer.from(await capture(shown), "base64"));
       cards[scheme] = [];
       for (const card of shown.cards) cards[scheme].push({ name: card.name, data: await capture(card) });

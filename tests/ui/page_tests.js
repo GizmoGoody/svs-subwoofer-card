@@ -87,6 +87,37 @@
   const subVolumes = () => volumes().filter((e) => !onGroup(e)).map((e) => e.entity_id).sort();
   const groupVolume = () => volumes().find(onGroup)?.entity_id;
 
+  // The entity with this translation key on the same device as an entity
+  const onDevice = (volume, key) => {
+    const device = hass().entities[volume]?.device_id;
+    return entities().find((e) => e.device_id === device && e.translation_key === key)?.entity_id;
+  };
+
+  // All text in a shadow tree, through every inner shadow tree
+  const deepText = (root) => [...root.querySelectorAll("*")]
+    .map((el) => (el.shadowRoot ? deepText(el.shadowRoot) : el.children.length ? "" : el.textContent))
+    .join(" ").replace(/\s+/g, " ");
+
+  // The states with the group's two subwoofers disagreeing: different
+  // volumes, presets and standby modes, so the group reports unknown
+  const mixedStates = () => {
+    const states = { ...hass().states };
+    const set = (id, state) => { if (id) states[id] = { ...states[id], state }; };
+    const [first, second] = subVolumes();
+    const group = groupVolume();
+    set(group, "unknown");
+    set(onDevice(group, "preset"), "unknown");
+    set(onDevice(group, "standby_mode"), "unknown");
+    set(first, "-20");
+    set(second, "-12");
+    set(onDevice(first, "preset"), "LOW");
+    set(onDevice(second, "preset"), "HIGH");
+    set(onDevice(first, "standby_mode"), "Auto ON");
+    set(onDevice(second, "standby_mode"), "ON");
+    for (const id of [first, second]) set(onDevice(id, "connected"), "on");
+    return states;
+  };
+
   // The panel card as deployed on the user's dashboard (the regression
   // baseline), for the given group and subwoofer volumes
   const deployedPanel = (group, left, right) => {
@@ -474,10 +505,6 @@
 
     // A tap on the driver connects or disconnects: the card's hass is a copy
     // with the connections set by the test, and records the actions it calls
-    const onDevice = (volume, key) => {
-      const device = hass().entities[volume]?.device_id;
-      return entities().find((e) => e.device_id === device && e.translation_key === key)?.entity_id;
-    };
     const tapCard = async (config, connected) => {
       const calls = [];
       const states = { ...hass().states };
@@ -590,6 +617,33 @@
         { [onDevice(first, "connected")]: false, [onDevice(second, "connected")]: true },
         (el) => el.shadowRoot.querySelectorAll(".members svs-subwoofer-card")[0],
       ), [onDevice(first, "reconnect")]);
+    });
+
+    await test("mixed: the group shows its rows' range, presets and M, and moves them together", async () => {
+      const group = groupVolume();
+      if (!group || !second) throw new Error("a group of two subwoofers is needed");
+      const calls = [];
+      const fake = { ...hass(), states: mixedStates(), callService: async (domain, service, data) => { calls.push({ domain, service, data }); } };
+      const panel = document.createElement("svs-subwoofer-panel-card");
+      panel.setConfig({ ...deployedPanel(group, first, second), state_content: ["state", "preset", "standby_mode"] });
+      panel.hass = fake;
+      stage().append(panel);
+      const header = await until(() => panel.shadowRoot.querySelector(".header svs-subwoofer-card"), "the header card");
+      const tile = await until(() => header.shadowRoot.querySelector("hui-tile-card")?.shadowRoot && header.shadowRoot.querySelector("hui-tile-card"), "the tile card");
+      const text = () => deepText(tile.shadowRoot);
+      await until(() => /-20 to -12/.test(text()), "the volume range in the state content").catch(() => { throw new Error(`the state content says: ${text()}`); });
+      if (!/LOW \/ HIGH/.test(text())) throw new Error(`no mixed presets in the state content: ${text()}`);
+      if (!/Auto \/ On/.test(text())) throw new Error(`no mixed standby modes in the state content: ${text()}`);
+      expectEqual(header.shadowRoot.querySelector(".standby-badge")?.textContent, "M", "the standby badge");
+      const volume = await until(() => findDeep(tile.shadowRoot, "svs-subwoofer-volume"), "the volume slider");
+      const control = await until(() => volume.shadowRoot.querySelector(".control.span"), "the slider spanning both volumes");
+      if (!volume.shadowRoot.querySelector(".loupe.span")) throw new Error("the loupe does not stretch over the span");
+      // Two steps up with the keys: each subwoofer moves by 2 dB
+      control.focus();
+      for (let i = 0; i < 2; i++) control.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      await until(() => calls.length >= 2, "the volumes to be sent", 3000);
+      const sent = Object.fromEntries(calls.filter((c) => c.service === "set_value").map((c) => [c.data.entity_id, c.data.value]));
+      expectEqual(sent, { [first]: -18, [second]: -10 }, "the volumes sent");
     });
 
     await test("connect tap: a card's own Icon tap behavior is kept", async () => {
@@ -870,7 +924,8 @@
   // and each card's place in it. Every card gets the same fixed states, with
   // every subwoofer connected, so two runs (the original card and this one)
   // show the same thing.
-  window.svsUiGallery = async () => {
+  // With extras, it also shows cards the original card cannot be compared on.
+  window.svsUiGallery = async (extras = false) => {
     const [first, second] = subVolumes();
     const states = { ...hass().states };
     for (const e of entities().filter((x) => x.translation_key === "connected")) states[e.entity_id] = { ...states[e.entity_id], state: "on" };
@@ -923,6 +978,16 @@
       deployed.setConfig({ ...deployedPanel(groupVolume(), first, second), members_open: true, members_toggle: false });
       deployed.hass = shown;
       box.append(deployed);
+    }
+    // The same panel with its subwoofers disagreeing (new in this card)
+    if (extras && second && groupVolume()) {
+      const mixed = document.createElement("svs-subwoofer-panel-card");
+      mixed.setConfig({
+        ...deployedPanel(groupVolume(), first, second), name: "Both (mixed)",
+        state_content: ["state", "preset", "standby_mode"], members_open: true, members_toggle: false,
+      });
+      mixed.hass = { ...hass(), states: mixedStates() };
+      box.append(mixed);
     }
     await sleep(2500);
     const place = (el) => {
