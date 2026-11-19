@@ -25,11 +25,11 @@ const EDITOR_TYPE = "svs-subwoofer-card-editor";
 const TILE_EDITOR_TYPE = "svs-subwoofer-tile-card-editor";
 
 // The entities a feature or the card looks for on a device, by translation key
-// (group entities first)
+// (a subwoofer group's entities have the same keys as a subwoofer's)
 const ROLES = {
-  preset: ["group_preset", "preset"],
-  volume: ["group_volume", "volume"],
-  standby: ["group_standby_mode", "standby_mode"],
+  preset: ["preset"],
+  volume: ["volume"],
+  standby: ["standby_mode"],
   connected: ["connected"],
   reconnect: ["reconnect"],
   disconnect: ["disconnect"],
@@ -128,6 +128,12 @@ const sortPairs = (pairs) => [...pairs].sort((a, b) => byLabel(a[1], b[1]));
 const standbyLabel = (mode) => (/^auto on$/i.test(mode ?? "") ? "Auto" : mode);
 
 const isSvs = (hass, entityId) => hass?.entities?.[entityId]?.platform === DOMAIN;
+
+/** Whether the entity belongs to a subwoofer group: its device's identifier is group_<entry id>. */
+function isGroup(hass, entityId) {
+  const device = hass?.devices?.[hass?.entities?.[entityId]?.device_id];
+  return (device?.identifiers ?? []).some(([domain, id]) => domain === DOMAIN && String(id).startsWith("group_"));
+}
 
 /**
  * The subwoofer's preset, standby mode and volume, for the tile card's state
@@ -1427,8 +1433,8 @@ class SvsCard extends HTMLElement {
 
   static getStubConfig(hass) {
     const all = Object.values(hass.entities ?? {});
-    const pick = (key) => all.find((e) => e.platform === DOMAIN && e.translation_key === key)?.entity_id;
-    const entity = pick("group_volume") ?? pick("volume") ?? "";
+    const volumes = all.filter((e) => e.platform === DOMAIN && e.translation_key === "volume").map((e) => e.entity_id);
+    const entity = volumes.find((id) => isGroup(hass, id)) ?? volumes[0] ?? "";
     return {
       entity,
       finish: "none",
@@ -1948,7 +1954,7 @@ const PANEL_EDITOR_TYPE = "svs-subwoofer-panel-card-editor";
 /** Every single subwoofer's volume entity (not groups), as [entity_id, name]. */
 function subwoofers(hass) {
   return Object.values(hass?.entities ?? {})
-    .filter((e) => e.platform === DOMAIN && e.translation_key === "volume")
+    .filter((e) => e.platform === DOMAIN && e.translation_key === "volume" && !isGroup(hass, e.entity_id))
     .map((e) => {
       const device = hass.devices?.[e.device_id];
       return [e.entity_id, device?.name_by_user || device?.name || e.entity_id];
@@ -2190,7 +2196,7 @@ function hideOptions(schema, entities) {
 /** The SVS volume entities: every subwoofer's, and with groups, every group's. */
 function svsVolumes(hass, groups = true) {
   return Object.values(hass?.entities ?? {})
-    .filter((e) => e.platform === DOMAIN && (e.translation_key === "volume" || (groups && e.translation_key === "group_volume")))
+    .filter((e) => e.platform === DOMAIN && e.translation_key === "volume" && (groups || !isGroup(hass, e.entity_id)))
     .map((e) => e.entity_id)
     .sort();
 }
