@@ -23,12 +23,18 @@ const browser = spawn(chrome, [
   "--headless=new", `--remote-debugging-port=${port}`,
   `--user-data-dir=${mkdtempSync(join(tmpdir(), "svs-chrome-"))}`,
   "--no-sandbox", "--disable-gpu", "--window-size=1280,2400", "about:blank",
-], { stdio: "ignore" });
+], { stdio: ["ignore", "ignore", "pipe"] });
+// Chrome's own messages, to tell why it did not start
+let chromeErrors = "";
+browser.stderr.on("data", (chunk) => { chromeErrors = (chromeErrors + chunk).slice(-4000); });
+let chromeExit = null;
+browser.on("exit", (code, signal) => { chromeExit = `exited with ${code ?? signal}`; });
 
 let socket;
 try {
   let page;
-  for (let i = 0; i < 300 && !page; i++) {
+  // A busy runner can take well over 30 seconds to start Chrome
+  for (let i = 0; i < 900 && !page && !chromeExit; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       page = list.find((t) => t.type === "page");
@@ -37,7 +43,7 @@ try {
       await sleep(100);
     }
   }
-  if (!page) throw new Error("Chrome did not start");
+  if (!page) throw new Error(`Chrome did not start (${chromeExit ?? "no page after 90 seconds"}):\n${chromeErrors}`);
 
   socket = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
