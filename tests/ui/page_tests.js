@@ -687,7 +687,8 @@
       const featureColor = getComputedStyle(standby).getPropertyValue("--feature-color").trim();
       if (/^#f/i.test(featureColor) && color === "#fff") throw new Error(`white text on the feature color ${featureColor}`);
       const labels = [...(standby.shadowRoot ?? standby).querySelectorAll("*")].map((e) => e.textContent).join("|");
-      if (/Auto On/.test(labels)) throw new Error("the card says Auto On, not Auto");
+      if (/Auto On/i.test(labels)) throw new Error("the card says Auto On, not Auto");
+      if (/\bON\b/.test(labels)) throw new Error("the card says ON, not On");
     });
 
     return results;

@@ -124,8 +124,9 @@ function sibling(hass, entityId, role) {
 const byLabel = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
 const sortPairs = (pairs) => [...pairs].sort((a, b) => byLabel(a[1], b[1]));
 
-// The card writes the Auto On standby mode as Auto (the integration's name is unchanged)
-const standbyLabel = (mode) => (/^auto on$/i.test(mode ?? "") ? "Auto" : mode);
+// The card writes the standby modes as Auto, Trigger and On (the integration
+// names them Auto ON, Trigger and ON)
+const standbyLabel = (mode) => (/^auto on$/i.test(mode ?? "") ? "Auto" : /^on$/i.test(mode ?? "") ? "On" : mode);
 
 const isSvs = (hass, entityId) => hass?.entities?.[entityId]?.platform === DOMAIN;
 
@@ -1726,7 +1727,7 @@ class SvsCard extends HTMLElement {
     const letter = this._config?.standby_badge && value && !NOT_PRESETS.includes(value) && value !== "unavailable" && value !== "unknown"
       ? value.trim()[0].toUpperCase() : "";
     this._standbyBadge.textContent = letter;
-    this._standbyBadge.title = letter ? `Standby mode: ${value}` : "";
+    this._standbyBadge.title = letter ? `Standby mode: ${standbyLabel(value)}` : "";
     this._standbyBadge.classList.toggle("on", !!letter);
     if (show || letter) this._placeBadge();
   }
