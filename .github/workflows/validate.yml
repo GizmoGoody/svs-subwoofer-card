@@ -15,3 +15,52 @@ jobs:
           category: plugin
           # Topics, description and issues are repository settings, not code
           ignore: brands topics
+
+  ui:
+    # Home Assistant's real frontend with the integration's fake subwoofers:
+    # the tests run inside a checkout of the integration, at a pinned release,
+    # and use its own test fixtures
+    name: Card UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      INTEGRATION_REF: v1.10.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: card
+      - uses: actions/checkout@v4
+        with:
+          repository: dangerouslaser/svs-subwoofer-ha
+          ref: ${{ env.INTEGRATION_REF }}
+          path: integration
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test dependencies
+        working-directory: integration
+        run: |
+          pip install -r requirements_test.txt
+          python .github/scripts/component_requirements.py > component-requirements.txt
+          # The frontend's own requirements (the integration's tests do not serve it)
+          python -c "import json, pathlib, homeassistant.components as c; print('\n'.join(json.loads((pathlib.Path(c.__file__).parent / 'frontend' / 'manifest.json').read_text())['requirements']))" >> component-requirements.txt
+          cat component-requirements.txt
+          pip install -r component-requirements.txt
+      - name: Add the card's tests to the integration's tests
+        run: cp card/tests/ui/* integration/tests/
+      - name: Run the card UI tests
+        working-directory: integration
+        env:
+          SVS_CARD: ${{ github.workspace }}/card/svs-subwoofer-card.js
+          SVS_UI_OUT: ${{ github.workspace }}/ui-results
+        run: pytest tests/test_card_ui.py -q -rs -s
+      - name: Keep the screenshots and the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: card-ui
+          path: ui-results
+          if-no-files-found: ignore
