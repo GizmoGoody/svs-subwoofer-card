@@ -19,6 +19,13 @@ CHANGES = [
         'const standbyLabel = (mode) => (/^auto on$/i.test(mode ?? "") ? "Auto" : mode);',
         'const standbyLabel = (mode) => (/^auto on$/i.test(mode ?? "") ? "Auto" : /^on$/i.test(mode ?? "") ? "On" : mode);',
     ),
+    (
+        "The Bluetooth badge sits bottom right, the standby badge bottom left",
+        "    this._badge.style.top = `${cy - r * .7071}px`;\n"
+        "    this._standbyBadge.style.left = `${cx + r * .7071}px`;",
+        "    this._badge.style.top = `${cy + r * .7071}px`;\n"
+        "    this._standbyBadge.style.left = `${cx - r * .7071}px`;",
+    ),
 ]
 
 

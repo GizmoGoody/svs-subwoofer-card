@@ -1863,8 +1863,8 @@ class SvsCard extends HTMLElement {
 
   /**
    * The badges sit on the driver's own edge (the driver grows and shrinks
-   * with the volume): Bluetooth up and to the right, the standby mode down
-   * and to the right, each about half over the driver.
+   * with the volume): Bluetooth down and to the right, the standby mode down
+   * and to the left, each about half over the driver.
    */
   _placeBadge() {
     const driver = this._driver;
@@ -1882,8 +1882,8 @@ class SvsCard extends HTMLElement {
     const cx = (box.left - frame.left) / scale + box.width / 2 / scale;
     const cy = (box.top - frame.top) / scale + box.height / 2 / scale;
     this._badge.style.left = `${cx + r * .7071}px`;
-    this._badge.style.top = `${cy - r * .7071}px`;
-    this._standbyBadge.style.left = `${cx + r * .7071}px`;
+    this._badge.style.top = `${cy + r * .7071}px`;
+    this._standbyBadge.style.left = `${cx - r * .7071}px`;
     this._standbyBadge.style.top = `${cy + r * .7071}px`;
   }
 
