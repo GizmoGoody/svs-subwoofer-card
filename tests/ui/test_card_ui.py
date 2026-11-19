@@ -8,7 +8,9 @@ in the light and the dark scheme, are saved for review.
 
 This file runs inside a checkout of the SVS Subwoofer integration (it is
 copied into its tests folder by the workflow), so it uses the integration's
-own test fixtures. SVS_CARD is the path of the card file to serve.
+own test fixtures. SVS_CARD is the path of the card file to serve, and
+SVS_BASELINE (optional) the original card's, which draws the same gallery
+for a card-by-card comparison.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from .conftest import ADDRESS, FakeSubwoofer, SetupEntry, settle
 HERE = Path(__file__).parent
 ADDRESS_2 = "54:B7:E5:82:D1:E3"
 CARD_URL = "/svs_card_test/svs-subwoofer-card.js"
+BASELINE_URL = "/svs_card_test/original/svs-subwoofer-card.js"
 
 
 async def test_card_ui(
@@ -67,9 +70,14 @@ async def test_card_ui(
     }
     assert await async_setup_component(hass, "frontend", {})
     # The card, served the way HACS serves it: a plain file the page imports
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(CARD_URL, str(card), cache_headers=False)]
-    )
+    paths = [StaticPathConfig(CARD_URL, str(card), cache_headers=False)]
+    # The original card, to compare with (optional)
+    baseline = os.environ.get("SVS_BASELINE")
+    if baseline:
+        paths.append(
+            StaticPathConfig(BASELINE_URL, str(Path(baseline).resolve()), cache_headers=False)
+        )
+    await hass.http.async_register_static_paths(paths)
 
     # Two subwoofers, Left and Right, and a group of both
     fake_subs[ADDRESS_2] = FakeSubwoofer()
@@ -105,6 +113,7 @@ async def test_card_ui(
         str(out),
         str(HERE / "page_tests.js"),
         CARD_URL,
+        *([BASELINE_URL] if baseline else []),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

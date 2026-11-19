@@ -25,10 +25,15 @@ jobs:
     timeout-minutes: 20
     env:
       INTEGRATION_REF: v1.10.1
+      # The card as deployed before the move: the gallery is compared with it
+      ORIGINAL_CARD_REF: 9f6ea49dd7fb5d07b34c2ca6a512eb5b1d85797b
     steps:
       - uses: actions/checkout@v4
         with:
           path: card
+          fetch-depth: 0
+      - name: Get the original card
+        run: git -C card show "$ORIGINAL_CARD_REF:svs-subwoofer-card.js" > original-card.js
       - uses: actions/checkout@v4
         with:
           repository: dangerouslaser/svs-subwoofer-ha
@@ -55,6 +60,7 @@ jobs:
         working-directory: integration
         env:
           SVS_CARD: ${{ github.workspace }}/card/svs-subwoofer-card.js
+          SVS_BASELINE: ${{ github.workspace }}/original-card.js
           SVS_UI_OUT: ${{ github.workspace }}/ui-results
         run: pytest tests/test_card_ui.py -q -rs -s
       - name: Keep the screenshots and the report

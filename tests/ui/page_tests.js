@@ -811,8 +811,14 @@
   };
 
   // The cards in every finish, for screenshots; returns the area to capture
+  // and each card's place in it. Every card gets the same fixed states, with
+  // every subwoofer connected, so two runs (the original card and this one)
+  // show the same thing.
   window.svsUiGallery = async () => {
     const [first, second] = subVolumes();
+    const states = { ...hass().states };
+    for (const e of entities().filter((x) => x.translation_key === "connected")) states[e.entity_id] = { ...states[e.entity_id], state: "on" };
+    const shown = { ...hass(), states };
     const box = stage();
     box.replaceChildren();
     const features = [
@@ -831,7 +837,7 @@
         state_content: ["state", "preset", "standby_mode"], features, features_position: "inline",
         finish, features_style: style, standby_badge: true,
       });
-      card.hass = hass();
+      card.hass = shown;
       box.append(card);
     }
     // The plain loupe (no thresholds), and no ring around the driver
@@ -841,7 +847,7 @@
       features: [{ type: "custom:svs-subwoofer-volume" }], features_position: "inline",
       finish: "black_oak", features_style: "console", driver_ring: false,
     });
-    plain.hass = hass();
+    plain.hass = shown;
     box.append(plain);
     if (second) {
       const panel = document.createElement("svs-subwoofer-panel-card");
@@ -852,18 +858,22 @@
           entity, state_content: ["state", "preset"], features: [{ type: "custom:svs-subwoofer-volume" }], features_position: "inline",
         })),
       });
-      panel.hass = hass();
+      panel.hass = shown;
       box.append(panel);
     }
     // The panel as deployed (the regression baseline), with its rows open
     if (second && groupVolume()) {
       const deployed = document.createElement("svs-subwoofer-panel-card");
       deployed.setConfig({ ...deployedPanel(groupVolume(), first, second), members_open: true, members_toggle: false });
-      deployed.hass = hass();
+      deployed.hass = shown;
       box.append(deployed);
     }
     await sleep(2500);
-    const rect = box.getBoundingClientRect();
-    return { x: rect.left + window.scrollX, y: rect.top + window.scrollY, width: Math.ceil(rect.width), height: Math.ceil(rect.height) };
+    const place = (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: Math.ceil(r.width), height: Math.ceil(r.height) };
+    };
+    const cards = [...box.children].map((el, i) => ({ name: el._config?.name ?? `${i + 1} ${el.localName}`, ...place(el) }));
+    return { ...place(box), cards };
   };
 })();
