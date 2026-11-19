@@ -2,6 +2,8 @@
 
 A dashboard card and three tile features for SVS subwoofers in Home Assistant, using the [SVS Subwoofer integration](https://github.com/dangerouslaser/svs-subwoofer-ha). The card began as part of [GizmoGoody's fork](https://github.com/GizmoGoody/svs-subwoofer-ha) of that integration and moved here so the integration can stay focused on the subwoofers themselves.
 
+![The SVS Subwoofer panel card in fabric, with a group above its two subwoofers](https://raw.githubusercontent.com/GizmoGoody/svs-subwoofer-card/main/docs/card.png)
+
 The card needs the SVS Subwoofer integration, version 1.10.0 or later (the version that added subwoofer groups).
 
 ## Install
