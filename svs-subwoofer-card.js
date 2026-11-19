@@ -2789,12 +2789,13 @@ if (!customElements.get(CARD_TYPE)) {
     name: "SVS Subwoofer",
     description: "A tile card for an SVS subwoofer or subwoofer group, with an optional SVS cabinet finish.",
     preview: true,
-    documentationURL: "https://github.com/dangerouslaser/svs-subwoofer-ha#dashboard-card",
+    documentationURL: "https://github.com/GizmoGoody/svs-subwoofer-card",
   }, {
     type: PANEL_TYPE,
     name: "SVS Subwoofer panel (prototype)",
     description: "The SVS Subwoofer card with rows for chosen subwoofers below it, on one surface.",
     preview: true,
+    documentationURL: "https://github.com/GizmoGoody/svs-subwoofer-card#svs-subwoofer-panel-card",
   });
   console.info(`%c SVS SUBWOOFER CARD %c ${VERSION} `, "color: #fff; background: #555; font-weight: bold", "color: #fff; background: #c8102e");
 }
