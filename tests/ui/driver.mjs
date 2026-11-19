@@ -124,6 +124,8 @@ try {
       throw new Error(`Home Assistant or the ${label} card did not load: ${JSON.stringify(loaded)}`);
     }
     await evaluate(readFileSync(pageScript, "utf8"));
+    // Which card file this page runs, told apart by its documentation link
+    return evaluate(`(window.customCards ?? []).find((c) => c.type === "svs-subwoofer-card")?.documentationURL ?? ""`);
   }
 
   const capture = async (rect) => (await send("Page.captureScreenshot", {
@@ -179,7 +181,7 @@ try {
     return { changed, total: w * h, sameSize: a.width === b.width && a.height === b.height, png: out.toDataURL("image/png").split(",")[1] };
   })()`);
 
-  await openWith(cardUrl, "new");
+  const newLink = await openWith(cardUrl, "new");
   const report = await evaluate("window.svsUiTests()");
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 2));
   const after = await gallery("new", report);
@@ -189,7 +191,12 @@ try {
   // same gallery, compared card by card. A card fails when more than 0.1 %
   // of its pixels differ, or its size changed.
   if (baselineUrl) {
-    await openWith(baselineUrl, "original");
+    const originalLink = await openWith(baselineUrl, "original");
+    report.push({
+      name: "compare: the second page runs the original card, not this one",
+      ok: !!originalLink && originalLink !== newLink,
+      detail: `original: ${originalLink || "(none)"}; new: ${newLink || "(none)"}`,
+    });
     const before = await gallery("original");
     mkdirSync(join(outDir, "compare"), { recursive: true });
     for (const scheme of ["light", "dark"]) {
