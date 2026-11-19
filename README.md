@@ -43,6 +43,7 @@ Edit a dashboard, select **Add card**, and search for **SVS Subwoofer**. The car
   - **Flat**: each control sits on a patch of the finish's base color, without grain or reflections.
   - **Console**: each control sits in a channel pressed into the panel. The preset and standby buttons are keys that press in (the active one stays pressed), and Home Assistant's own toggles become a slide.
 - **Bluetooth badge**: the connection, shown on the driver (the default), only when the subwoofer is not connected, or hidden. On a group in the panel card, it shows the group's subwoofers together: all, some, or none connected.
+- **Tap to connect**: a tap on the driver disconnects a connected subwoofer and reconnects one that is not connected. On a group in the panel card, it disconnects every subwoofer in its rows when all are connected, and otherwise reconnects those that are not. Set **Icon tap behavior** (under Interactions) to use the tap for something else.
 - **Driver ring**: a ring around the driver in the active preset's color, or the volume threshold's color.
 - **Standby mode badge**: a letter on the driver for the standby mode: A (Auto), O (On), or T (Trigger).
 - **Shake when the volume or preset changes**: the driver shakes while the volume slider moves and briefly when a preset loads, harder at a higher volume. It stays still for anyone who has reduced motion turned on.

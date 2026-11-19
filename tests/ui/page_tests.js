@@ -417,13 +417,13 @@
       if (shown(await until(() => alone.querySelector("ha-button"), "the editor"))) throw new Error("Copy from main is shown outside the panel");
     });
 
-    // Icon tap behavior set to Perform action, Switch: Toggle: what the action
+    // Icon tap behavior set to Perform action, Button: Press: what the action
     // editor shows for its target, in Home Assistant's own tile card editor
-    // and in the SVS Subwoofer card's, and whether the Connection switch can
-    // be chosen. Fails when the SVS editor shows less than Home Assistant's.
-    await test("interactions: Perform action offers a target, the Connection switch among them", async () => {
-      const connection = entities().find((e) => e.translation_key === "connection" && e.entity_id.startsWith("switch."))?.entity_id;
-      const action = { action: "perform-action", perform_action: "switch.toggle" };
+    // and in the SVS Subwoofer card's, and whether a subwoofer's button can be
+    // chosen. Fails when the SVS editor shows less than Home Assistant's.
+    await test("interactions: Perform action offers a target, the subwoofer's buttons among them", async () => {
+      const connection = entities().find((e) => e.translation_key === "reconnect")?.entity_id;
+      const action = { action: "perform-action", perform_action: "button.press" };
       const deep = (root, selector, found = []) => {
         for (const el of root.querySelectorAll("*")) {
           if (el.matches(selector)) found.push(el);
@@ -467,10 +467,80 @@
       const report = JSON.stringify({ connection, theirs, ours }, null, 1);
       console.log(`target diagnostic: ${report}`);
       results.push({ name: "diagnostic: the action editor's target (report only)", ok: true, detail: report });
-      // A branch without the subwoofer Connection switch has nothing to target
-      if (!connection) return;
+      if (!connection) throw new Error("no Reconnect button found");
       if (theirs.picker && !ours.picker) throw new Error(`the SVS editor shows no target picker where Home Assistant's does:\n${report}`);
-      if (ours.control && !ours.hassHasSwitch) throw new Error(`the SVS editor's action editor does not know the Connection switch:\n${report}`);
+      if (ours.control && !ours.hassHasSwitch) throw new Error(`the SVS editor's action editor does not know the Reconnect button:\n${report}`);
+    });
+
+    // A tap on the driver connects or disconnects: the card's hass is a copy
+    // with the connections set by the test, and records the actions it calls
+    const onDevice = (volume, key) => {
+      const device = hass().entities[volume]?.device_id;
+      return entities().find((e) => e.device_id === device && e.translation_key === key)?.entity_id;
+    };
+    const tapCard = async (config, connected) => {
+      const calls = [];
+      const states = { ...hass().states };
+      for (const [id, on] of Object.entries(connected)) states[id] = { ...states[id], state: on ? "on" : "off" };
+      const fake = { ...hass(), states, callService: async (domain, service, data) => { calls.push({ domain, service, data }); } };
+      const el = document.createElement(config.type.slice("custom:".length));
+      el.setConfig(config);
+      el.hass = fake;
+      stage().append(el);
+      const card = el.localName === "svs-subwoofer-panel-card"
+        ? await until(() => el.shadowRoot.querySelector(".header svs-subwoofer-card"), "the header card") : el;
+      const tile = await until(() => card.shadowRoot.querySelector("hui-tile-card")?._config && card.shadowRoot.querySelector("hui-tile-card"), "the tile card");
+      return {
+        calls,
+        iconTap: tile._config.icon_tap_action,
+        tap: () => tile.dispatchEvent(new CustomEvent("ll-custom", { bubbles: true, composed: true, detail: tile._config.icon_tap_action })),
+      };
+    };
+    const pressed = (calls) => calls.filter((c) => c.domain === "button" && c.service === "press").flatMap((c) => [c.data.entity_id].flat()).sort();
+
+    await test("connect tap: a connected subwoofer disconnects", async () => {
+      const { calls, iconTap, tap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first }, { [onDevice(first, "connected")]: true });
+      expectEqual(iconTap, { action: "fire-dom-event", svs_subwoofer: "connection" }, "the tile card's icon tap");
+      tap();
+      await until(() => calls.length, "a button press");
+      expectEqual(pressed(calls), [onDevice(first, "disconnect")], "the buttons pressed");
+    });
+
+    await test("connect tap: a disconnected subwoofer reconnects", async () => {
+      const { calls, tap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first }, { [onDevice(first, "connected")]: false });
+      tap();
+      await until(() => calls.length, "a button press");
+      expectEqual(pressed(calls), [onDevice(first, "reconnect")], "the buttons pressed");
+    });
+
+    await test("connect tap: a group with one of two connected reconnects only the other", async () => {
+      const group = groupVolume();
+      if (!group || !second) throw new Error("a group of two subwoofers is needed");
+      const { calls, tap } = await tapCard(
+        { type: "custom:svs-subwoofer-panel-card", entity: group, members: [{ entity: first }, { entity: second }] },
+        { [onDevice(first, "connected")]: true, [onDevice(second, "connected")]: false },
+      );
+      tap();
+      await until(() => calls.length, "a button press");
+      expectEqual(pressed(calls), [onDevice(second, "reconnect")], "the buttons pressed");
+    });
+
+    await test("connect tap: a group with both connected disconnects both", async () => {
+      const group = groupVolume();
+      if (!group || !second) throw new Error("a group of two subwoofers is needed");
+      const { calls, tap } = await tapCard(
+        { type: "custom:svs-subwoofer-panel-card", entity: group, members: [{ entity: first }, { entity: second }] },
+        { [onDevice(first, "connected")]: true, [onDevice(second, "connected")]: true },
+      );
+      tap();
+      await until(() => calls.length, "a button press");
+      expectEqual(pressed(calls), [onDevice(first, "disconnect"), onDevice(second, "disconnect")].sort(), "the buttons pressed");
+    });
+
+    await test("connect tap: a card's own Icon tap behavior is kept", async () => {
+      const own = { action: "more-info" };
+      const { iconTap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first, icon_tap_action: own }, {});
+      expectEqual(iconTap, own, "the tile card's icon tap");
     });
 
     await test("console: keys keep one color whether selected or not; preset keys at full strength", async () => {

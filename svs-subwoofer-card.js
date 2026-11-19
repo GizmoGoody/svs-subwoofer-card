@@ -1425,6 +1425,12 @@ class SvsCard extends HTMLElement {
     this._resize.observe(this._frame);
     // The volume feature reports while its slider moves
     this._frame.addEventListener("svs-volume-input", (ev) => this._sliderMoved(ev.detail));
+    // A tap on the driver connects or disconnects (see _tileConfig)
+    this._frame.addEventListener("ll-custom", (ev) => {
+      if (ev.detail?.svs_subwoofer !== "connection") return;
+      ev.stopPropagation();
+      this._toggleConnection();
+    });
   }
 
   static getConfigElement() {
@@ -1450,7 +1456,7 @@ class SvsCard extends HTMLElement {
     const finish = config.finish ?? "none";
     if (!FINISHES.some(([id]) => id === finish)) throw new Error(`Unknown finish: ${finish}`);
     this._config = { ...config, finish };
-    const tile = tileConfig(this._config);
+    const tile = this._tileConfig();
     if (this._tile) {
       this._tile.setConfig(tile);
     } else if (customElements.get("hui-tile-card")) {
@@ -1460,13 +1466,40 @@ class SvsCard extends HTMLElement {
       window.loadCardHelpers?.().then(async (helpers) => {
         helpers.createCardElement({ type: "tile", entity: tile.entity });
         await customElements.whenDefined("hui-tile-card");
-        if (!this._tile) this._createTile(tileConfig(this._config));
+        if (!this._tile) this._createTile(this._tileConfig());
       });
     }
     this._drawn = undefined;
     this._expanderDrawn = undefined;
     this._layout();
     if (this._hass) this._updateBadge();
+  }
+
+  /**
+   * The inner tile card's configuration. Unless the card sets its own Icon
+   * tap behavior, a tap on the driver connects or disconnects.
+   */
+  _tileConfig() {
+    const tile = tileConfig(this._config);
+    if (tile.icon_tap_action === undefined) tile.icon_tap_action = { action: "fire-dom-event", svs_subwoofer: "connection" };
+    return tile;
+  }
+
+  /**
+   * Connect or disconnect the subwoofers the Bluetooth badge shows: when all
+   * are connected, press each one's Disconnect button; otherwise press
+   * Reconnect on those that are not connected (Reconnect would drop a live
+   * connection first). A group outside the panel card has no subwoofers to
+   * act on.
+   */
+  _toggleConnection() {
+    const sensors = this._connectionSensors;
+    if (!this._hass || !sensors.length) return;
+    const connected = (id) => this._hass.states[id]?.state === "on";
+    const all = sensors.every(connected);
+    const targets = all ? sensors : sensors.filter((id) => !connected(id));
+    const buttons = targets.map((id) => sibling(this._hass, id, all ? "disconnect" : "reconnect")).filter(Boolean);
+    if (buttons.length) this._hass.callService("button", "press", { entity_id: buttons });
   }
 
   _createTile(tile) {
@@ -1659,11 +1692,6 @@ class SvsCard extends HTMLElement {
     this._shaking = driver.animate(frames, { duration: 90, iterations: duration ? Math.max(1, Math.round(duration / 90)) : Infinity });
   }
 
-  /**
-   * The Bluetooth badge on the driver: the connection status, and (by
-   * default) a tap connects or disconnects. A group has no connection of its
-   * own, so it has no badge.
-   */
   /**
    * The connection sensors the badge shows: the subwoofer's own, or for a
    * group in the panel card, those of the subwoofers in its rows.
@@ -2369,7 +2397,7 @@ class SvsCardEditor extends HTMLElement {
       }]),
       {
         name: "bluetooth", label: "Bluetooth badge",
-        helper: "To connect and disconnect with a tap, set Icon tap behavior (under Interactions) to Perform action, Switch: Toggle, with the subwoofer's Connection switch as the target. On a group subwoofer, the badge shows its subwoofers together.",
+        helper: "A tap on the driver connects or disconnects, unless Icon tap behavior (under Interactions) is set to something else. On a group subwoofer in the panel card, the badge and the tap cover the subwoofers in its rows.",
         selector: { select: { mode: "dropdown", options: BLUETOOTH.map(([value, label]) => ({ value, label })) } },
       },
       {
