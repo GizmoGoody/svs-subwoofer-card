@@ -1463,6 +1463,9 @@ class SvsCard extends HTMLElement {
         /* Features style: a flat patch of the finish's base color, or a channel
            pressed into the panel, behind each feature control */
         #areas { position: absolute; inset: 0; pointer-events: none; }
+        /* In the panel card, the cards are parts of one surface: no hover
+           highlight of their own (a tap still shows) */
+        .tile.embedded { --ha-ripple-hover-opacity: 0; }
         .area { position: absolute; box-sizing: border-box; }
         .area.flat { background: var(--flat); box-shadow: 0 0 3px 1px var(--flat); }
         .area.console {
@@ -1914,6 +1917,7 @@ class SvsCard extends HTMLElement {
       this._tile.classList.toggle("dark", tone === "dark");
       this._tile.classList.toggle("light", tone === "light");
       this._tile.classList.toggle("solid", !!tone && (this._config.features_style ?? "match") !== "match");
+      this._tile.classList.toggle("embedded", embedded);
     }
     if (this._badge.classList.contains("on")) this._placeBadge();
     if (!embedded) this._paintExpander(onExpander);
