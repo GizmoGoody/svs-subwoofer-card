@@ -2416,7 +2416,7 @@ class SvsCardEditor extends HTMLElement {
       </style>
       <div id="tile"></div>
       <ha-expansion-panel outlined expanded>
-        <div slot="header" role="heading" aria-level="3">SVS style</div>
+        <div slot="header" role="heading" aria-level="3">SVS Subwoofer</div>
         <div class="content">
           <ha-form id="finish"></ha-form>
           <div class="row" id="row"><ha-button id="randomize"></ha-button></div>
@@ -2593,10 +2593,15 @@ class SvsPanelCardEditor extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this.shadowRoot.innerHTML = `
       <style>
-        h3 { margin: 24px 0 4px; font-size: var(--ha-font-size-l, 16px); font-weight: 500; }
+        ha-expansion-panel {
+          display: block; margin-top: 24px;
+          --expansion-panel-content-padding: 0;
+          border-radius: var(--ha-border-radius-md, 8px);
+          --ha-card-border-radius: var(--ha-border-radius-md, 8px);
+        }
+        ha-expansion-panel > [slot="header"] { margin: 0; font-size: inherit; font-weight: inherit; }
+        .content { padding: 12px; }
         .hint { margin: 0 0 8px; color: var(--secondary-text-color); font-size: var(--ha-font-size-s, 12px); }
-        ha-expansion-panel .hint { margin: 8px 0 0; }
-        ha-expansion-panel + ha-expansion-panel { margin-top: 8px; }
         .toolbar { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--divider-color); margin-bottom: 16px; }
         .tabs { display: flex; flex: 1; gap: 4px; overflow-x: auto; }
         .tab {
@@ -2607,23 +2612,25 @@ class SvsPanelCardEditor extends HTMLElement {
         .tab:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
         .row-options { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 8px; }
         .row-options .buttons { display: flex; gap: 4px; }
-        ha-form { display: block; margin-top: 24px; }
+        #body ha-form { display: block; margin-top: 24px; }
       </style>
-      <ha-expansion-panel outlined header="Card">
+      <div id="card"></div>
+      <ha-expansion-panel outlined expanded id="svs">
+        <div slot="header" role="heading" aria-level="3">SVS Subwoofer</div>
         <div id="style"></div>
       </ha-expansion-panel>
-      <ha-expansion-panel outlined header="Main subwoofer">
-        <p class="hint">Recommended: a subwoofer group, so the card controls all of its subwoofers together.</p>
-        <div id="card"></div>
-      </ha-expansion-panel>
-      <h3>Subwoofers in the collapsible section</h3>
-      <p class="hint">Recommended: the group's member subwoofers, so each one can also be adjusted on its own. Each numbered tab is one subwoofer; the plus button adds one.</p>
-      <div id="rows"></div>
-      <div class="toolbar">
-        <div class="tabs" role="tablist" aria-label="Subwoofers in the collapsible section"></div>
-        <ha-icon-button id="add"></ha-icon-button>
-      </div>
-      <div id="body"></div>`;
+      <ha-expansion-panel outlined expanded id="members">
+        <div slot="header" role="heading" aria-level="3">Subwoofers in the collapsible section</div>
+        <div class="content">
+          <p class="hint">Recommended: the group's member subwoofers, so each one can also be adjusted on its own. Each numbered tab is one subwoofer; the plus button adds one.</p>
+          <div id="rows"></div>
+          <div class="toolbar">
+            <div class="tabs" role="tablist" aria-label="Subwoofers in the collapsible section"></div>
+            <ha-icon-button id="add"></ha-icon-button>
+          </div>
+          <div id="body"></div>
+        </div>
+      </ha-expansion-panel>`;
     this._cardSlot = this.shadowRoot.getElementById("card");
     this._styleSlot = this.shadowRoot.getElementById("style");
     this._rowsSlot = this.shadowRoot.getElementById("rows");
@@ -2700,10 +2707,10 @@ class SvsPanelCardEditor extends HTMLElement {
     else this._showMember(this._selected);
   }
 
-  // Above the tabs, two collapsed sections with the SVS Subwoofer card's
-  // editor split in two: the Card (its SVS style options) and the Main
-  // subwoofer (the tile card's options). Below them, how the collapsible
-  // section opens.
+  // As on the SVS Subwoofer card's own editor: first the main subwoofer's
+  // tile card options, untouched, then the SVS Subwoofer section with the
+  // card's own options, then the subwoofers in the collapsible section and
+  // how it opens.
   _showCard() {
     if (!this._cardEditor) {
       this._styleEditor = document.createElement(EDITOR_TYPE);

@@ -271,22 +271,20 @@
       const tabs = () => [...el.shadowRoot.querySelectorAll(".tab")];
       await until(() => tabs().length === 1, "the tabs");
       expectEqual(tabs().map((t) => t.textContent), ["1"], "tab labels");
-      const heading = el.shadowRoot.querySelector("h3");
-      expectEqual(heading?.textContent, "Subwoofers in the collapsible section", "the heading above the tabs");
-      // The main subwoofer's editor is in a collapsed section above the heading, not on a tab
-      // Two collapsed sections: the Card (its style options) and the Main
-      // subwoofer (the tile card's options)
-      const sections = [...el.shadowRoot.querySelectorAll("ha-expansion-panel")];
-      expectEqual(sections.map((p) => p.getAttribute("header")), ["Card", "Main subwoofer"], "the sections");
-      if (sections.some((p) => p.expanded)) throw new Error("a section starts expanded");
-      const [cardSection, section] = sections;
-      const style = await until(() => cardSection.querySelector("svs-subwoofer-card-editor"), "the card's style options");
+      // As on the xTool card: the main subwoofer's tile card options first,
+      // untouched, then the SVS Subwoofer section, then the rows' section
+      const sections = [...el.shadowRoot.querySelectorAll(":scope > ha-expansion-panel")];
+      expectEqual(sections.map((p) => p.querySelector('[slot="header"]')?.textContent), ["SVS Subwoofer", "Subwoofers in the collapsible section"], "the sections");
+      if (!sections.every((p) => p.expanded)) throw new Error("a section starts collapsed");
+      const [svsSection, rowsSection] = sections;
+      const cardAbove = el.shadowRoot.querySelector(":scope > svs-subwoofer-card-editor");
+      if (!cardAbove) throw new Error("the main subwoofer's tile card options are not at the top");
+      if (!(cardAbove.compareDocumentPosition(svsSection) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error("the tile card options are not before the SVS Subwoofer section");
+      if (cardAbove.shadowRoot.querySelector("ha-expansion-panel")?.style.display !== "none") throw new Error("the main subwoofer's options show the style options too");
+      const style = await until(() => svsSection.querySelector("svs-subwoofer-card-editor"), "the card's style options");
       await until(() => style.shadowRoot.querySelector("#finish")?.schema?.length, "the Finish field");
-      if ([...style.shadowRoot.querySelectorAll("*")].some((n) => n.localName.endsWith("tile-card-editor"))) throw new Error("the Card section shows the tile card's options");
-      const cardAbove = section.querySelector("svs-subwoofer-card-editor");
-      if (!cardAbove) throw new Error("the card's editor is not in the main subwoofer's section");
-      if (cardAbove.shadowRoot.querySelector("ha-expansion-panel")?.style.display !== "none") throw new Error("the Main subwoofer section shows the style options");
-      if (!(section.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error("the main subwoofer's section is not before the heading");
+      if ([...style.shadowRoot.querySelectorAll("*")].some((n) => n.localName.endsWith("tile-card-editor"))) throw new Error("the SVS Subwoofer section shows the tile card's options");
+      if (!rowsSection.querySelector(".tabs")) throw new Error("the tabs are not in the rows' section");
 
       // State content and features stay as edited (the first tab is open)
       const tile = await tileEditorIn(el);
