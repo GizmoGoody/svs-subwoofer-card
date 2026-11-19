@@ -1720,10 +1720,8 @@ class SvsCard extends HTMLElement {
       const standby = this._rowsMixed("standby");
       if (standby && !extra.standby_mode) extra.standby_mode = standby.map(standbyLabel).join(" / ");
       const volumes = this._rowsMixed("volume")?.map(Number).filter(Number.isFinite);
-      if (volumes?.length > 1 && !Number.isFinite(Number(state))) {
-        const unit = stateObj.attributes.unit_of_measurement;
-        state = `${Math.min(...volumes)} to ${Math.max(...volumes)}${unit ? ` ${unit}` : ""}`;
-      }
+      // Home Assistant adds the unit (dB) when it shows the state
+      if (volumes?.length > 1 && !Number.isFinite(Number(state))) state = `${Math.min(...volumes)} to ${Math.max(...volumes)}`;
     }
     const extraKey = JSON.stringify([extra, state]);
     if (this._sourceState !== stateObj || this._lastPicture !== picture || this._lastExtra !== extraKey) {

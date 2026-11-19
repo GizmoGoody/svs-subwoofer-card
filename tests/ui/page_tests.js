@@ -632,6 +632,7 @@
       const tile = await until(() => header.shadowRoot.querySelector("hui-tile-card")?.shadowRoot && header.shadowRoot.querySelector("hui-tile-card"), "the tile card");
       const text = () => deepText(tile.shadowRoot);
       await until(() => /-20 to -12/.test(text()), "the volume range in the state content").catch(() => { throw new Error(`the state content says: ${text()}`); });
+      if (/dB dB/.test(text())) throw new Error(`the unit is shown twice: ${text()}`);
       if (!/LOW \/ HIGH/.test(text())) throw new Error(`no mixed presets in the state content: ${text()}`);
       if (!/Auto \/ On/.test(text())) throw new Error(`no mixed standby modes in the state content: ${text()}`);
       expectEqual(header.shadowRoot.querySelector(".standby-badge")?.textContent, "M", "the standby badge");

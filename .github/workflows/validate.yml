@@ -33,7 +33,10 @@ jobs:
           path: card
           fetch-depth: 0
       - name: Get the original card
-        run: git -C card show "$ORIGINAL_CARD_REF:svs-subwoofer-card.js" > original-card.js
+        run: |
+          git -C card show "$ORIGINAL_CARD_REF:svs-subwoofer-card.js" > original-card.js
+          # Changes made on purpose are applied to it, so only others show
+          python3 card/tests/ui/accepted_changes.py original-card.js
       - uses: actions/checkout@v4
         with:
           repository: dangerouslaser/svs-subwoofer-ha
