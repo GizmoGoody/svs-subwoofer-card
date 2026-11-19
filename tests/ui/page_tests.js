@@ -274,7 +274,10 @@
     });
 
     await test("state content picker: the editors' states context has the subwoofer attributes", async () => {
+      // The fake subwoofers have no active preset; an unknown one is left out
+      const withPreset = { ...hass(), states: { ...hass().states, [onDevice(first, "preset")]: { ...hass().states[onDevice(first, "preset")], state: "MEDIUM" } } };
       const { el } = hosted("svs-subwoofer-card-editor");
+      el.hass = withPreset;
       el.setConfig({ type: "custom:svs-subwoofer-card", entity: first });
       const tile = await tileEditorIn(el);
       const states = await contextStates(mainForm(tile));
@@ -284,6 +287,7 @@
       }
       stage().replaceChildren();
       const panel = hosted("svs-subwoofer-panel-card-editor").el;
+      panel.hass = withPreset;
       panel.setConfig({ type: "custom:svs-subwoofer-panel-card", entity: groupVolume() ?? first, members: [{ entity: first }] });
       const row = await tileEditorIn(panel);
       const rowAttributes = Object.keys((await contextStates(mainForm(row)))?.[first]?.attributes ?? {});
