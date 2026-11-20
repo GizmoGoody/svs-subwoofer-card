@@ -174,7 +174,7 @@ export class SvsVolumeEditor extends LightEditor {
     const toMembers = !!this._panel?.copyTo && (this._panel.members?.() ?? 0) > 0;
     const fromMain = !!this._panel?.volume?.();
     return html`<style>.note { color: var(--secondary-text-color); font-size: var(--ha-font-size-s, 12px); margin-top: 8px; min-height: 1em; }</style>
-      ${toMembers || fromMain ? html`<ha-button @click=${this._copy}>${toMembers ? "Copy to members" : "Copy from main"}</ha-button>` : nothing}
+      <ha-button style=${toMembers || fromMain ? "" : "display: none"} @click=${this._copy}>${toMembers ? "Copy to members" : "Copy from main"}</ha-button>
       <ha-form .hass=${this._hass} .schema=${schema} .data=${this._data} .computeLabel=${label} .computeHelper=${helper}
         @value-changed=${this._changed}></ha-form>
       <div class="note" role="status">${this._note}</div>`;

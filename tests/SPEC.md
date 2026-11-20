@@ -2,7 +2,7 @@
 
 Every behavior has an ID. Each names the check that covers it:
 
-- **browser**: `tests/browser/<page>.html`, run by `python tests/browser/run.py [bundle]` on stand-ins for Home Assistant's elements. Each check's label starts with its ID.
+- **browser**: `tests/browser/<page>.html`, run by `python tests/browser/run.py [bundle]` on stand-ins for Home Assistant's elements. Each check's label starts with its ID. The card loads as a module, as Home Assistant loads it, and a check reads the page a moment after an action (`settle()`), as Lit draws in a microtask.
 - **unit**: `tests/unit/*.test.ts`, run by Vitest.
 - **real HA**: `tests/ui/page_tests.js`, run by `tests/ui/test_card_ui.py` on the real Home Assistant frontend. The test's name is given.
 - **real Home Assistant (by hand)**: what no stand-in can show. Check these on a dashboard (see the end).

@@ -520,7 +520,8 @@
         });
         stage().append(editor);
         editor.setConfig(config);
-        return { editor, saved, button: editor.querySelector("ha-button") };
+        // The editor draws its button a moment after it is given its settings
+        return { editor, saved, get button() { return editor.querySelector("ha-button"); } };
       };
       const shown = (button) => getComputedStyle(button).display !== "none";
 
@@ -528,6 +529,7 @@
       const rowTile = await tileEditorIn(panel);
       await until(() => featuresEditor(rowTile), "the row's features list");
       const row = open(rowTile, 0, rowVolume);
+      await until(() => row.button && shown(row.button), "the row's Copy from main");
       if (!shown(row.button)) throw new Error("Copy from main is not shown on the row's volume");
       if (row.button.disabled) throw new Error("Copy from main is grayed out on the row's volume");
       expectEqual(row.button.textContent, "Copy from main", "the button's label");
@@ -542,6 +544,7 @@
       await until(() => featuresEditor(mainTile), "the main subwoofer's features list");
       const changed = { ...main, min: -45 };
       const own = open(mainTile, 0, main);
+      await until(() => own.button?.textContent === "Copy to members", "the main subwoofer's Copy to members");
       expectEqual(own.button.textContent, "Copy to members", "the main subwoofer's button");
       if (!shown(own.button) || own.button.disabled) throw new Error("Copy to members is not offered on the main subwoofer");
       own.editor.setConfig(changed);

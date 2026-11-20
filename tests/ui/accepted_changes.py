@@ -26,6 +26,11 @@ CHANGES = [
         "    this._badge.style.top = `${cy + r * .7071}px`;\n"
         "    this._standbyBadge.style.left = `${cx - r * .7071}px`;",
     ),
+    (
+        "The driver ring has its color from the first render (K-13: it was gray until the next state change)",
+        "  connectedCallback() {\n    this._layout();\n  }",
+        "  connectedCallback() {\n    if (this._tile && this._hass) this._tile.hass = this._innerHass(this._hass);\n    this._layout();\n  }",
+    ),
 ]
 
 
