@@ -1,3 +1,6 @@
 .DS_Store
 __pycache__/
 ui-results/
+# Build output (attached to GitHub releases, not committed)
+dist/
+node_modules/
