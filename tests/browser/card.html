@@ -1,0 +1,245 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SVS Subwoofer card: the card</title>
+<style>
+  body { margin: 0; padding: 16px; background: #111; color: #ddd; font: 13px Roboto, "Segoe UI", sans-serif; }
+  pre { white-space: pre-wrap; }
+</style>
+<script src="stand-ins.js"></script>
+<script src="load.js"></script>
+<script src="checks.js"></script>
+<div id="cards"></div>
+<pre id="report" data-result="running">running</pre>
+<script>
+  // Each check is named by its line in tests/SPEC.md
+  const scaleOf = (card) => Number(getComputedStyle(driverOf(card)).scale);
+  const center = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
+  const THRESHOLDS = [{ below: -30, color: "green" }, { below: -15, color: "yellow" }, { color: "red" }];
+
+  runChecks(async () => {
+    // K-1: the tile card inside, with the card's own options left out and the driver as its picture
+    const plain = addCard("tile", { entity: LEFT, name: "Left", finish: "black_ash", pattern: 7, vibration: true, state_content: ["state", "preset", "standby_mode"] });
+    await until(() => driverOf(plain));
+    const inner = tileOf(plain).config;
+    check("K-1 tile", inner.type === "tile" && inner.show_entity_picture === true && inner.name === "Left"
+      && !["finish", "pattern", "vibration"].some((k) => k in inner), `the tile card's options only (${Object.keys(inner).join(", ")})`);
+    check("K-1 tile", JSON.stringify(inner.icon_tap_action) === JSON.stringify({ action: "fire-dom-event", svs_subwoofer: "connection" }),
+      `a tap on the driver connects or disconnects by default (${JSON.stringify(inner.icon_tap_action)})`);
+    check("K-1 tile", /^data:image\/svg\+xml/.test(driverOf(plain).getAttribute("src")), "the driver in place of the icon");
+
+    // K-4: State content shows the preset and the standby mode (Auto, not Auto ON)
+    check("K-4 state content", secondaryOf(plain) === "-12 dB · MEDIUM · Auto", `the volume, preset and standby mode (${secondaryOf(plain)})`);
+    const on = addCard("standby On", { entity: LEFT, state_content: ["state", "standby_mode"] }, { hass: makeHass({ "select.subwoofer_left_standby_mode": "ON" }) });
+    await until(() => driverOf(on));
+    check("K-4 state content", secondaryOf(on) === "-12 dB · On", `On, not ON (${secondaryOf(on)})`);
+
+    // K-2: the driver's size follows the volume, over the volume slider's range
+    const quiet = addCard("quiet", { entity: LEFT }, { hass: makeHass({ [LEFT]: "-60" }) });
+    const loud = addCard("loud", { entity: LEFT }, { hass: makeHass({ [LEFT]: "0" }) });
+    const ranged = addCard("ranged", { entity: LEFT, features: [{ type: "custom:svs-subwoofer-volume", min: -30, max: 0 }] }, { hass: makeHass({ [LEFT]: "-30" }) });
+    await until(() => driverOf(quiet) && driverOf(loud) && driverOf(ranged) && scaleOf(loud) > 1);
+    check("K-2 driver size", Math.abs(scaleOf(quiet) - 0.7) < 0.01 && Math.abs(scaleOf(loud) - 1.2) < 0.01,
+      `small when quiet, large when loud (${scaleOf(quiet)}, ${scaleOf(loud)})`);
+    check("K-2 driver size", Math.abs(scaleOf(ranged) - 0.7) < 0.01, `the slider's From is the quietest (${scaleOf(ranged)})`);
+
+    // K-3: the driver ring: the preset's color, else the volume threshold's color; none when off
+    // K-13: the ring has its color from the first render (the card gets hass before it is on the page)
+    check("K-13 first ring", ringOf(plain) === "#ffeb3b", `MEDIUM's yellow at once (${ringOf(plain)})`);
+    const again = (card) => (card.hass = changed(card.hass, {}));
+    again(plain);
+    check("K-3 ring", ringOf(plain) === "#ffeb3b", `MEDIUM's yellow (${ringOf(plain)})`);
+    const own = addCard("own color", { entity: LEFT, features: [{ type: "custom:svs-subwoofer-presets", presets: { MEDIUM: { color: "purple" } } }] });
+    const manual = addCard("manual", { entity: LEFT, features: [{ type: "custom:svs-subwoofer-volume", volume_thresholds: THRESHOLDS }] }, { hass: makeHass({ "select.subwoofer_left_preset": "Manual" }) });
+    const noRing = addCard("no ring", { entity: LEFT, driver_ring: false });
+    await until(() => driverOf(own) && driverOf(manual) && driverOf(noRing));
+    [own, manual, noRing].forEach(again);
+    check("K-3 ring", ringOf(own) === "#926bc7", `the preset's own color (${ringOf(own)})`);
+    check("K-3 ring", ringOf(manual) === "#f44336", `Manual: the threshold color of the volume (${ringOf(manual)})`);
+    check("K-3 ring", ringOf(noRing) === "#2a2d32", `Driver ring off: no colored ring (${ringOf(noRing)})`);
+
+    // K-5: the Bluetooth badge: shown, only when not connected, or hidden; at the driver's bottom right
+    const badge = bluetoothBadgeOf(plain);
+    await until(() => shown(badge) && badge.getBoundingClientRect().width > 0);
+    check("K-5 bluetooth", shown(badge) && badge.getAttribute("aria-label") === "Connected", `shown, Connected (${badge?.getAttribute("aria-label")})`);
+    const b = center(badge), d = center(driverOf(plain));
+    check("K-5 bluetooth", b.x > d.x && b.y > d.y, `at the driver's bottom right (${Math.round(b.x - d.x)}, ${Math.round(b.y - d.y)})`);
+    const width = badge.getBoundingClientRect().width;
+    check("K-5 bluetooth", Math.round(width) === 18, `18 px (${width})`);
+    const onlyOff = addCard("disconnected only", { entity: LEFT, bluetooth: "disconnected" });
+    const hidden = addCard("hidden", { entity: LEFT, bluetooth: "off" }, { hass: makeHass({ "binary_sensor.subwoofer_left_connected": "off" }) });
+    const lost = addCard("lost", { entity: LEFT, bluetooth: "disconnected" }, { hass: makeHass({ "binary_sensor.subwoofer_left_connected": "off" }) });
+    const group = addCard("group alone", { entity: BOTH });
+    await until(() => driverOf(onlyOff) && driverOf(hidden) && driverOf(lost) && driverOf(group));
+    await wait(50);
+    check("K-5 bluetooth", !shown(bluetoothBadgeOf(onlyOff)) && !shown(bluetoothBadgeOf(hidden)), "hidden while connected (only when not connected) and with Hide");
+    check("K-5 bluetooth", shown(bluetoothBadgeOf(lost)) && bluetoothBadgeOf(lost).getAttribute("aria-label") === "Not connected",
+      `shown when not connected (${bluetoothBadgeOf(lost)?.getAttribute("aria-label")})`);
+    check("K-5 bluetooth", !shown(bluetoothBadgeOf(group)), "a group outside the panel card has no badge");
+
+    // K-6: the standby mode badge: A, O or T at the driver's bottom left; off by default
+    const letters = [];
+    for (const mode of ["Auto ON", "ON", "Trigger"]) {
+      const card = addCard(`standby ${mode}`, { entity: LEFT, standby_badge: true }, { hass: makeHass({ "select.subwoofer_left_standby_mode": mode }) });
+      await until(() => standbyBadgeOf(card) && driverOf(card));
+      letters.push([textOf(standbyBadgeOf(card)), standbyBadgeOf(card)?.title]);
+    }
+    check("K-6 standby badge", JSON.stringify(letters.map((l) => l[0])) === '["A","O","T"]', `A, O, T (${letters.map((l) => l[0]).join(", ")})`);
+    check("K-6 standby badge", letters[0][1] === "Standby mode: Auto" && letters[1][1] === "Standby mode: On", `named (${letters.map((l) => l[1]).join(", ")})`);
+    const withLetter = addCard("letter", { entity: LEFT, standby_badge: true });
+    await until(() => shown(standbyBadgeOf(withLetter)) && driverOf(withLetter) && standbyBadgeOf(withLetter).getBoundingClientRect().width > 0);
+    await wait(50);
+    const s = center(standbyBadgeOf(withLetter)), sd = center(driverOf(withLetter));
+    check("K-6 standby badge", s.x < sd.x && s.y > sd.y, `at the driver's bottom left (${Math.round(s.x - sd.x)}, ${Math.round(s.y - sd.y)})`);
+    check("K-6 standby badge", !shown(standbyBadgeOf(plain)) || !textOf(standbyBadgeOf(plain)), "off by default");
+
+    // K-7: a tap on the driver disconnects a connected subwoofer and reconnects one that is not
+    const tapHass = makeHass();
+    const tap = addCard("tap", { entity: LEFT }, { hass: tapHass });
+    await until(() => driverOf(tap));
+    driverOf(tap).click();
+    check("K-7 tap", JSON.stringify(tapHass.calls) === JSON.stringify([{ domain: "button", service: "press", data: { entity_id: ["button.subwoofer_left_disconnect"] } }]),
+      `Disconnect (${JSON.stringify(tapHass.calls)})`);
+    const offHass = makeHass({ "binary_sensor.subwoofer_left_connected": "off" });
+    const tapOff = addCard("tap off", { entity: LEFT }, { hass: offHass });
+    await until(() => driverOf(tapOff));
+    driverOf(tapOff).click();
+    check("K-7 tap", offHass.calls[0]?.data.entity_id?.[0] === "button.subwoofer_left_reconnect", `Reconnect (${JSON.stringify(offHass.calls)})`);
+    const ownHass = makeHass();
+    const ownTap = addCard("own tap", { entity: LEFT, icon_tap_action: { action: "perform-action", perform_action: "switch.toggle", target: { entity_id: "switch.x" } } }, { hass: ownHass });
+    await until(() => driverOf(ownTap));
+    driverOf(ownTap).click();
+    check("K-7 tap", ownHass.calls.length === 1 && ownHass.calls[0].domain === "switch", `the card's own Icon tap behavior is kept (${JSON.stringify(ownHass.calls)})`);
+
+    // K-8: the driver shakes when the preset or volume changes; not with Shake off or reduced motion
+    const shakes = async (config, before) => {
+      const hass = makeHass();
+      const card = addCard("shake", { entity: LEFT, ...config }, { hass });
+      await until(() => driverOf(card));
+      before?.();
+      card.hass = changed(hass, { "select.subwoofer_left_preset": "HIGH" });
+      await wait(30);
+      const running = driverOf(card).getAnimations().length > 0;
+      window.reduceMotion = false;
+      return running;
+    };
+    check("K-8 shake", await shakes({}), "on a preset change");
+    check("K-8 shake", !(await shakes({ vibration: false })), "not with Shake off");
+    check("K-8 shake", !(await shakes({}, () => (window.reduceMotion = true))), "not with reduced motion");
+
+    // K-9: wrong options are refused with a message
+    const refused = (config) => {
+      try {
+        document.createElement("svs-subwoofer-card").setConfig({ type: "custom:svs-subwoofer-card", ...config });
+        return "";
+      } catch (err) {
+        return err.message;
+      }
+    };
+    check("K-9 options", refused({}) === "Choose an SVS Subwoofer entity", `no entity (${refused({})})`);
+    check("K-9 options", refused({ entity: LEFT, finish: "walnut" }) === "Unknown finish: walnut", `an unknown finish (${refused({ entity: LEFT, finish: "walnut" })})`);
+    check("K-9 options", refused({ entity: LEFT, member_features: ["volume"] }) === "Unknown option: member_features",
+      `an old option (${refused({ entity: LEFT, member_features: ["volume"] })})`);
+    check("K-9 options", refused({ entity: LEFT, members: [] }) === "Unknown option: members", `the panel's options on the card (${refused({ entity: LEFT, members: [] })})`);
+
+    // K-10: a new card starts on the group's volume, with presets and volume
+    const stub = customElements.get("svs-subwoofer-card").getStubConfig(makeHass());
+    check("K-10 stub", stub.entity === BOTH && stub.finish === "none" && stub.vibration === true && stub.features_position === "bottom"
+      && JSON.stringify(stub.features) === JSON.stringify([{ type: "custom:svs-subwoofer-presets" }, { type: "custom:svs-subwoofer-volume" }]), JSON.stringify(stub));
+
+    // K-11: the tile card's size and grid options
+    check("K-11 size", JSON.stringify(plain.getGridOptions()) === JSON.stringify(tileOf(plain).getGridOptions()) && plain.getCardSize() === tileOf(plain).getCardSize(),
+      JSON.stringify(plain.getGridOptions()));
+
+    // K-12: nothing around the tile card clips it, so its callouts can pass the card's edge
+    const clipped = [];
+    for (let node = tileOf(plain); node && node !== plain; node = node.parentNode ?? node.host) {
+      if (node.nodeType === 1 && getComputedStyle(node).overflow !== "visible") clipped.push(node.localName || node.className);
+    }
+    check("K-12 callouts", !clipped.length && getComputedStyle(plain).overflow === "visible", `nothing clips the tile card (${clipped.join(", ")})`);
+
+    // F-1, F-2: a finish is drawn behind the card, at its size; the tile card's own background is clear
+    const finished = addCard("finish", { entity: LEFT, finish: "black_ash", pattern: 7 });
+    const theme = addCard("theme", { entity: LEFT });
+    await until(() => deep(finished, "canvas")[0]?.width > 0);
+    const canvas = deep(finished, "canvas")[0];
+    check("F-2 finish", shown(canvas) && canvas.width === finished.clientWidth && canvas.height === finished.clientHeight,
+      `the finish fills the card (${canvas.width}x${canvas.height}, card ${finished.clientWidth}x${finished.clientHeight})`);
+    check("F-2 finish", getComputedStyle(deep(tileOf(finished), "ha-card")[0]).backgroundColor === "rgba(0, 0, 0, 0)", "the tile card is see-through on a finish");
+    check("F-1 none", !shown(deep(theme, "canvas")[0]) && getComputedStyle(deep(tileOf(theme), "ha-card")[0]).backgroundColor === rgb("#1c1c1c"),
+      "None: the theme's own card");
+    const same = addCard("same pattern", { entity: LEFT, finish: "black_ash", pattern: 7 });
+    const other = addCard("other pattern", { entity: LEFT, finish: "black_ash", pattern: 8 });
+    await until(() => deep(same, "canvas")[0]?.width > 0 && deep(other, "canvas")[0]?.width > 0);
+    const picture = (card) => deep(card, "canvas")[0].toDataURL();
+    check("F-2 pattern", picture(same) === picture(finished) && picture(other) !== picture(finished), "the pattern sets the grain: the same pattern draws the same");
+    // F-1: every finish draws
+    const drawn = [];
+    for (const finish of ["black_ash", "black_oak", "gloss_black", "gloss_white", "fabric", "grille"]) {
+      const card = addCard(finish, { entity: LEFT, finish });
+      await until(() => deep(card, "canvas")[0]?.width > 0);
+      const c = deep(card, "canvas")[0];
+      const [r, g, bl] = c.getContext("2d").getImageData(c.width / 2, c.height / 2, 1, 1).data;
+      drawn.push([finish, (r + g + bl) / 3]);
+    }
+    check("F-1 finishes", drawn.every(([f, v]) => (f === "gloss_white" ? v > 180 : v < 130)), `dark finishes dark, gloss white light (${drawn.map(([f, v]) => `${f} ${Math.round(v)}`).join(", ")})`);
+
+    // F-3: on a finish, the text takes the finish's tone
+    const white = addCard("gloss white", { entity: LEFT, finish: "gloss_white" });
+    await until(() => driverOf(white));
+    const nameColor = (card) => getComputedStyle(deep(tileOf(card), "ha-tile-info")[0].firstElementChild).color;
+    check("F-3 text", nameColor(finished) === "rgba(255, 255, 255, 0.95)" && nameColor(white) === "rgba(0, 0, 0, 0.85)",
+      `light text on dark finishes, dark on white (${nameColor(finished)}, ${nameColor(white)})`);
+
+    // F-4: Features style. Flat: a patch of the finish's base color behind each control (each preset key on its own)
+    const features = [{ type: "custom:svs-subwoofer-presets" }, { type: "custom:svs-subwoofer-volume" }, { type: "toggle" }];
+    const flat = addCard("flat", { entity: LEFT, finish: "black_ash", features_style: "flat", features });
+    const match = addCard("match", { entity: LEFT, finish: "black_ash", features_style: "match", features });
+    await until(() => featureOf(flat, "svs-subwoofer-presets") && buttonsOf(featureOf(flat, "svs-subwoofer-presets")).length === 3);
+    await wait(300);
+    const patches = (card) => [...card.shadowRoot.querySelectorAll("*")].filter((el) => getComputedStyle(el).backgroundColor === rgb("#1a1a1d"));
+    check("F-4 flat", patches(flat).length === 5, `one patch per preset key, slider and toggle (${patches(flat).length})`);
+    check("F-4 match", patches(match).length === 0, `Match style: the finish shows through (${patches(match).length})`);
+
+    // F-4: Console: keys that press in, one color selected or not; Home Assistant's toggles become a slide
+    const consoleCard = addCard("console", { entity: LEFT, finish: "black_ash", features_style: "console", features });
+    await until(() => featureOf(consoleCard, "svs-subwoofer-presets") && buttonsOf(featureOf(consoleCard, "svs-subwoofer-presets")).length === 3);
+    await wait(300);
+    const keys = buttonsOf(featureOf(consoleCard, "svs-subwoofer-presets"));
+    const pressed = keys.find((k) => k.getAttribute("aria-pressed") === "true");
+    const raised = keys.find((k) => k.getAttribute("aria-pressed") === "false");
+    check("F-4 console", getComputedStyle(pressed).transform !== "none" && getComputedStyle(raised).transform === "none", "the selected key is pressed in");
+    check("F-4 console", getComputedStyle(pressed, "::before").opacity === getComputedStyle(raised, "::before").opacity,
+      `one color selected or not (${getComputedStyle(pressed, "::before").opacity}, ${getComputedStyle(raised, "::before").opacity})`);
+    const toggle = deep(consoleCard, "ha-control-switch")[0];
+    check("F-4 console", getComputedStyle(toggle.shadowRoot.querySelector(".switch")).paddingLeft === "0px", "Home Assistant's toggle becomes a slide");
+    const flatToggle = deep(flat, "ha-control-switch")[0];
+    check("F-4 console", getComputedStyle(flatToggle.shadowRoot.querySelector(".switch")).paddingLeft === "4px", "only with Console");
+
+    // F-7: the volume's loupe bezel is of the finish
+    const bezel = getComputedStyle(featureOf(consoleCard, "svs-subwoofer-volume")).getPropertyValue("--svs-bezel").trim();
+    check("F-7 bezel", bezel === "#24211f", `Black Ash's bezel (${bezel})`);
+
+    // F-5: Finish extent Container: in an expander card, the header draws the finish across it, the cards inside are see-through
+    const expander = document.createElement("expander-card");
+    document.getElementById("cards").append(expander);
+    const header = document.createElement("svs-subwoofer-card");
+    header.setConfig({ type: "custom:svs-subwoofer-card", entity: BOTH, finish: "black_ash", finish_extent: "container" });
+    const child = document.createElement("svs-subwoofer-card");
+    child.setConfig({ type: "custom:svs-subwoofer-card", entity: LEFT, finish: "black_ash", finish_extent: "container" });
+    expander.style.cssText = "display:block;width:420px";
+    expander.add(header, [child]);
+    header.hass = makeHass();
+    child.hass = makeHass();
+    await until(() => /url\(/.test(getComputedStyle(expander.shadowRoot.querySelector("ha-card")).backgroundImage), 3000);
+    check("F-5 container", /url\("?data:image\/png/.test(getComputedStyle(expander.shadowRoot.querySelector("ha-card")).backgroundImage), "the expander card carries the finish");
+    check("F-5 container", !shown(deep(header, "canvas")[0]) && !shown(deep(child, "canvas")[0])
+      && getComputedStyle(deep(tileOf(child), "ha-card")[0]).backgroundColor === "rgba(0, 0, 0, 0)", "the cards in it are see-through");
+
+    // F-6: the card's corners are the theme's
+    const frameRadius = getComputedStyle(tileOf(finished).parentElement).borderTopLeftRadius;
+    check("F-6 corners", frameRadius === "12px", `the theme's card radius (${frameRadius})`);
+  });
+</script>

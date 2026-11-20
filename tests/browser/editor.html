@@ -1,0 +1,234 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SVS Subwoofer card: the editors</title>
+<style>
+  body { margin: 0; padding: 16px; background: #111; color: #ddd; font: 13px Roboto, "Segoe UI", sans-serif; }
+  pre { white-space: pre-wrap; }
+</style>
+<script src="stand-ins.js"></script>
+<script src="load.js"></script>
+<script src="checks.js"></script>
+<div id="cards"></div>
+<pre id="report" data-result="running">running</pre>
+<script>
+  // Each check is named by its line in tests/SPEC.md
+  const TileEditor = () => customElements.get("hui-tile-card-editor");
+  const tileEditorsOf = (editor) => deep(editor, "*").filter((el) => el instanceof TileEditor());
+  const ownForms = (editor) => [...editor.shadowRoot.querySelectorAll("ha-form")];
+  const formWith = (editor, name) => deep(editor, "ha-form").find((f) => f.fields.includes(name));
+  const headings = (editor) => deep(editor, '[slot="header"]').filter((h) => h.checkVisibility()).map(textOf);
+  const buttonNamed = (root, text) => deep(root, "ha-button").find((b) => textOf(b) === text);
+  const iconButton = (root, label) => deep(root, "ha-icon-button").find((b) => b.getAttribute("aria-label") === label);
+  const optionLabels = (field) => field.selector.select.options.map((o) => (typeof o === "string" ? o : o.label));
+  const last = (editor) => editor.sent.at(-1);
+  const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  /** A feature's editor, as Home Assistant opens it: hass, the context and its configuration. */
+  function featureEditor(tag, config, entityId = BOTH) {
+    const editor = customElements.get(tag).getConfigElement();
+    editor.sent = [];
+    editor.addEventListener("config-changed", (ev) => editor.sent.push(ev.detail.config));
+    editor.hass = makeHass();
+    editor.context = { entity_id: entityId };
+    editor.setConfig(config);
+    document.getElementById("cards").append(editor);
+    return editor;
+  }
+
+  runChecks(async () => {
+    // E-3: the editor writes the card's options out
+    const editor = addEditor("svs-subwoofer-card-editor", { type: "custom:svs-subwoofer-card", entity: LEFT });
+    check("E-3 saved", sameJson(last(editor), { type: "custom:svs-subwoofer-card", entity: LEFT, finish: "none", vibration: true, bluetooth: "show", standby_badge: false, driver_ring: true }),
+      JSON.stringify(last(editor)));
+    await until(() => tileEditorsOf(editor).length === 1);
+    const tile = tileEditorsOf(editor)[0];
+
+    // E-1: the tile card's own editor first, then the SVS Subwoofer section
+    const order = [...editor.shadowRoot.children].filter((el) => el.localName !== "style").map((el) => (el instanceof TileEditor() ? "tile" : el.localName));
+    check("E-1 layout", order[0] === "tile" && order.includes("ha-expansion-panel") && JSON.stringify(headings(editor)) === '["SVS Subwoofer"]',
+      `${order.join(", ")}; ${headings(editor).join(", ")}`);
+    const finishForm = formWith(editor, "finish");
+    check("E-1 finishes", sameJson(optionLabels(finishForm.field("finish")), ["None (theme)", "Premium Black Ash", "Black Oak Real Wood Veneer", "Piano Gloss Black", "Piano Gloss White", "Fabric", "Grille"]),
+      optionLabels(finishForm.field("finish")).join(", "));
+    const options = formWith(editor, "bluetooth");
+    check("E-1 fields", sameJson(options.fields, ["bluetooth", "driver_ring", "standby_badge", "vibration"]), `without a finish: ${options.fields.join(", ")}`);
+
+    // E-6: the labels and helpers
+    const texts = {
+      bluetooth: ["Bluetooth badge", "A tap on the driver connects or disconnects, unless Icon tap behavior (under Interactions) is set to something else. On a group subwoofer in the panel card, the badge and the tap cover its member subwoofers."],
+      driver_ring: ["Driver ring", "In the active preset's color, or the volume threshold's color."],
+      standby_badge: ["Standby mode badge", "A letter on the driver for the standby mode: A (Auto), O (On) or T (Trigger)."],
+      vibration: ["Shake when the volume or preset changes", "The driver shakes harder at a higher volume. It stays still for anyone who has reduced motion turned on."],
+    };
+    const wrong = Object.entries(texts).filter(([name, [label, helper]]) => options.label(name) !== label || options.helper(name) !== helper).map(([n]) => n);
+    check("E-6 texts", !wrong.length, `labels and helpers (${wrong.join(", ") || "as written"})`);
+    check("E-6 texts", sameJson(optionLabels(options.field("bluetooth")), ["Show", "Show only when not connected", "Hide"]), optionLabels(options.field("bluetooth")).join(", "));
+
+    // E-2: the tile card's editor without the icon options; the entity picker offers only SVS Subwoofer volumes
+    check("E-2 tile editor", !tile.fields.includes("icon") && !tile.fields.includes("show_entity_picture") && tile.fields.includes("color"), tile.fields.join(", "));
+    const entityField = tile.schema.find((s) => s.name === "entity");
+    check("E-2 entities", sameJson(entityField.selector.entity.include_entities, [BOTH, LEFT, RIGHT]), JSON.stringify(entityField.selector));
+
+    // E-7: the State content picker sees the preset and standby mode
+    check("E-7 states", tile.contextStates?.[LEFT]?.attributes.preset === "MEDIUM" && tile.contextStates?.[LEFT]?.attributes.standby_mode === "Auto",
+      JSON.stringify(tile.contextStates?.[LEFT]?.attributes));
+
+    // E-4, E-8: a change in the tile card's editor keeps the card's options; handed back, the editor shows it
+    tile.change({ ...tile.config, name: "Sub", state_content: ["state"], features: [{ type: "custom:svs-subwoofer-volume" }] });
+    check("E-4 tile changes", last(editor).name === "Sub" && last(editor).finish === "none" && last(editor).type === "custom:svs-subwoofer-card" && !("show_entity_picture" in last(editor)),
+      JSON.stringify(last(editor)));
+    editor.setConfig(last(editor));
+    await wait(30);
+    tile.change({ ...tile.config, state_content: [] });
+    editor.setConfig(last(editor));
+    await wait(30);
+    check("E-8 handed back", sameJson(tile.config.state_content, []) && sameJson(tile.config.features, [{ type: "custom:svs-subwoofer-volume" }]),
+      `a removed state content stays removed, an added feature shows (${JSON.stringify(tile.config)})`);
+
+    // E-5: a finish adds Finish extent, Features style and Randomize, with their defaults
+    finishForm.edit({ finish: "black_ash" });
+    check("E-5 finish", last(editor).finish === "black_ash" && last(editor).pattern === 4242 && last(editor).finish_extent === "card" && last(editor).features_style === "match",
+      JSON.stringify(last(editor)));
+    editor.setConfig(last(editor));
+    const finished = formWith(editor, "bluetooth");
+    check("E-5 finish", sameJson(finished.fields, ["finish_extent", "features_style", "bluetooth", "driver_ring", "standby_badge", "vibration"]), finished.fields.join(", "));
+    check("E-5 finish", sameJson(optionLabels(finished.field("features_style")), ["Match style", "Flat", "Console"]) && sameJson(optionLabels(finished.field("finish_extent")), ["Card", "Container"]),
+      `${optionLabels(finished.field("features_style")).join(", ")}; ${optionLabels(finished.field("finish_extent")).join(", ")}`);
+    check("E-6 texts", finished.helper("finish_extent") === "Normally set to Card. Set to Container when the SVS Subwoofer card is contained in another card (e.g. Expander card) to extend the selected Finish to that card."
+      && finished.helper("features_style") === "Match style: the finish shows through the feature controls. Flat: similar to match but without grain or reflections. Console: 3D machine appearance.",
+      "Finish extent and Features style helpers");
+    const randomize = deep(editor, "ha-button").find((b) => /^Randomize/.test(textOf(b)));
+    check("E-5 randomize", textOf(randomize) === "Randomize grain" && randomize.checkVisibility(), `named for what it changes (${textOf(randomize)})`);
+    randomize.click();
+    check("E-5 randomize", Number.isFinite(last(editor).pattern) && last(editor).pattern !== 4242, `a new pattern (${last(editor).pattern})`);
+    editor.setConfig(last(editor));
+    finishForm.edit({ finish: "fabric" });
+    editor.setConfig(last(editor));
+    check("E-5 randomize", textOf(randomize) === "Randomize reflections", textOf(randomize));
+    finishForm.edit({ finish: "none" });
+    check("E-5 none", !("pattern" in last(editor)) && !("finish_extent" in last(editor)) && !("features_style" in last(editor)), JSON.stringify(last(editor)));
+    editor.setConfig(last(editor));
+    check("E-5 none", !randomize.checkVisibility(), "no Randomize without a finish");
+
+    // The panel's editor
+    const panel = addEditor("svs-subwoofer-panel-card-editor", panelConfig({ finish: "none", vibration: true, bluetooth: "show", standby_badge: false, driver_ring: true }));
+    await until(() => tileEditorsOf(panel).length === 2);
+    // The main card's tile editor, and the member subwoofer's on the selected tab
+    const main = tileEditorsOf(panel).find((t) => t.config.entity === BOTH);
+    const member = tileEditorsOf(panel).find((t) => t.config.entity !== BOTH);
+    const tabs = deep(panel, '[role="tab"]');
+
+    // PE-1: the card's options, then SVS Subwoofer, then Member subwoofers with numbered tabs
+    check("PE-1 layout", sameJson(headings(panel), ["SVS Subwoofer", "Member subwoofers"]), headings(panel).join(", "));
+    const top = (el) => el.getBoundingClientRect().top;
+    check("PE-1 layout", top(main) <= top(deep(panel, '[slot="header"]').find((h) => h.checkVisibility())) && top(member) > top(tabs[0]),
+      `the main card's tile editor first; a member's below the tabs (${top(main)}, ${top(deep(panel, '[slot="header"]').find((h) => h.checkVisibility()))}, ${top(member)}, ${top(tabs[0])})`);
+    check("PE-1 tabs", sameJson(tabs.map(textOf), ["1", "2"]) && sameJson(tabs.map((t) => t.title), ["Subwoofer Left", "Subwoofer Right"]), `${tabs.map(textOf).join(", ")}; ${tabs.map((t) => t.title).join(", ")}`);
+    const hint = deep(panel, "p").map(textOf).find((t) => /^Recommended/.test(t));
+    check("PE-1 hint", hint === "Recommended: the subwoofers in the main subwoofer's group, so each one can also be adjusted on its own. Each numbered tab is one member subwoofer; the plus button adds one.", hint);
+    check("PE-1 add", !!iconButton(panel, "Add a subwoofer"), "a plus button: Add a subwoofer");
+
+    // PE-5: the main entity's helper, and only there
+    check("PE-5 helper", main.helperFor("entity") === "With Member subwoofers, choose their group subwoofer." && main.helperFor("features_position") === "Where the features go",
+      `${main.helperFor("entity")}; ${main.helperFor("features_position")}`);
+
+    // PE-6: how the member subwoofers show
+    const rowsForm = formWith(panel, "members_toggle");
+    check("PE-6 rows", rowsForm.label("members_toggle") === "Tap the card to show or hide the member subwoofers"
+      && rowsForm.helper("members_toggle") === "While this is on, a tap on the card does this instead of its Tap behavior (under Interactions). Icon tap behavior still works."
+      && rowsForm.label("members_open") === "Show the member subwoofers at load", "labels and helper");
+    rowsForm.edit({ members_toggle: false });
+    check("PE-6 rows", last(panel).members_toggle === false && !rowsForm.fields.includes("members_open"), `Show at load only with the tap (${rowsForm.fields.join(", ")})`);
+    panel.setConfig(last(panel));
+    rowsForm.edit({ members_toggle: true });
+    panel.setConfig(last(panel));
+
+    // PE-4: a member subwoofer's tab: the tile card's editor, with only single subwoofers, saved without type
+    const memberEntity = member.schema.find((s) => s.name === "entity");
+    check("PE-4 member", sameJson(memberEntity.selector.entity.include_entities, [LEFT, RIGHT]), JSON.stringify(memberEntity.selector));
+    member.change({ ...member.config, name: "Sub L" });
+    check("PE-4 member", sameJson(last(panel).members[0], { entity: LEFT, state_content: ["state", "preset", "standby_mode"], features: [{ type: "custom:svs-subwoofer-volume" }], features_position: "inline", name: "Sub L" }),
+      JSON.stringify(last(panel).members[0]));
+    panel.setConfig(last(panel));
+
+    // FE-3: the main volume's settings can be copied to the members; a member's from the main; never grayed out
+    const mainVolume = main.openFeature(1);
+    const toMembers = featureEditor("svs-subwoofer-volume", mainVolume);
+    const copyTo = buttonNamed(toMembers, "Copy to members");
+    check("FE-3 copy", !!copyTo && !copyTo.hasAttribute("disabled") && copyTo.checkVisibility(), "Copy to members on the main subwoofer's volume");
+    copyTo.click();
+    check("FE-3 copy", last(panel).members.every((m) => sameJson(m.features.find((f) => f.type === "custom:svs-subwoofer-volume"), mainVolume)), "copied to every member subwoofer");
+    panel.setConfig(last(panel));
+    await until(() => tileEditorsOf(panel).length === 2);
+    const memberNow = tileEditorsOf(panel).find((t) => t.config.entity !== BOTH);
+    panel.setConfig({ ...last(panel), features: [{ type: "custom:svs-subwoofer-volume", min: -40 }] });
+    const rowVolume = memberNow.openFeature(0);
+    const fromMain = featureEditor("svs-subwoofer-volume", rowVolume, LEFT);
+    const copyFrom = buttonNamed(fromMain, "Copy from main");
+    check("FE-3 copy", !!copyFrom && !copyFrom.hasAttribute("disabled") && copyFrom.checkVisibility(), "Copy from main on a member's volume");
+    copyFrom.click();
+    check("FE-3 copy", sameJson(last(fromMain), { type: "custom:svs-subwoofer-volume", min: -40 }), JSON.stringify(last(fromMain)));
+
+    // PE-3: duplicate, move and remove a member subwoofer
+    const one = addEditor("svs-subwoofer-panel-card-editor", panelConfig({ members: [{ entity: LEFT, name: "L", features: [{ type: "custom:svs-subwoofer-volume" }] }] }));
+    await until(() => tileEditorsOf(one).length === 2);
+    check("PE-3 buttons", ["Duplicate", "Move before", "Move after", "Remove this subwoofer"].every((l) => iconButton(one, l)) && iconButton(one, "Move before").disabled && iconButton(one, "Move after").disabled,
+      "Duplicate, Move before, Move after, Remove; moves disabled at the ends");
+    iconButton(one, "Duplicate").click();
+    check("PE-3 duplicate", sameJson(last(one).members, [{ entity: LEFT, name: "L", features: [{ type: "custom:svs-subwoofer-volume" }] }, { entity: RIGHT, features: [{ type: "custom:svs-subwoofer-volume" }] }]),
+      `the next subwoofer, without the name (${JSON.stringify(last(one).members)})`);
+    one.setConfig(last(one));
+    await until(() => iconButton(one, "Move before") && !iconButton(one, "Move before").disabled);
+    iconButton(one, "Move before").click();
+    check("PE-3 move", sameJson(last(one).members.map((m) => m.entity), [RIGHT, LEFT]), last(one).members.map((m) => m.entity).join(", "));
+    one.setConfig(last(one));
+    await wait(30);
+    iconButton(one, "Remove this subwoofer").click();
+    check("PE-3 remove", last(one).members.length === 1, JSON.stringify(last(one).members));
+
+    // PE-2: adding a subwoofer: those not in the panel yet, by name
+    const empty = addEditor("svs-subwoofer-panel-card-editor", panelConfig({ members: [] }));
+    await until(() => formWith(empty, "entity") && formWith(empty, "entity").field("entity")?.selector.select);
+    const addForm = deep(empty, "ha-form").find((f) => f.field("entity")?.selector.select);
+    check("PE-2 add", addForm.label("entity") === "Subwoofer to add" && sameJson(optionLabels(addForm.field("entity")), ["Subwoofer Left", "Subwoofer Right"]),
+      `${addForm.label("entity")}: ${optionLabels(addForm.field("entity")).join(", ")}`);
+    addForm.edit({ entity: RIGHT });
+    check("PE-2 add", sameJson(last(empty).members, [{ entity: RIGHT, state_content: ["state", "preset", "standby_mode"], features: [{ type: "custom:svs-subwoofer-volume" }], features_position: "inline" }]),
+      JSON.stringify(last(empty).members));
+
+    // FE-1: the presets' settings
+    const presets = featureEditor("svs-subwoofer-presets", { type: "custom:svs-subwoofer-presets" });
+    const pForm = presets.querySelector("ha-form");
+    const shown = pForm.field("presets_shown");
+    check("FE-1 presets", sameJson(shown.selector.select.options, ["LOW", "MEDIUM", "HIGH", "Default"]) && shown.selector.select.multiple && shown.selector.select.reorder
+      && sameJson(pForm.data.presets_shown, ["LOW", "MEDIUM", "HIGH"]), `slot order, Default left out until added (${JSON.stringify(pForm.data.presets_shown)})`);
+    check("FE-1 presets", pForm.label("presets_shown") === "Presets" && pForm.helper("presets_shown") === "Default is the subwoofer's factory settings (SVS's fourth preset); it is shown only if you add it."
+      && sameJson(optionLabels(pForm.field("style")), ["Buttons", "Cycle button"]), "labels, helper and styles");
+    check("FE-1 presets", pForm.data.color_LOW === "green" && pForm.data.icon_HIGH === "mdi:volume-high" && !pForm.fields.includes("color_Default"),
+      "LOW, MEDIUM and HIGH start in their colors; Default has no color or icon until added");
+    pForm.edit({ presets_shown: ["HIGH", "LOW"] });
+    check("FE-1 presets", sameJson(last(presets).presets_shown, ["HIGH", "LOW"]), `reordered presets keep their order (${JSON.stringify(last(presets))})`);
+
+    // FE-2: the volume's settings
+    const volume = featureEditor("svs-subwoofer-volume", { type: "custom:svs-subwoofer-volume" });
+    const vForm = volume.querySelector("ha-form");
+    const note = () => textOf(volume.querySelector('[role="status"]'));
+    check("FE-2 volume", sameJson(vForm.fields, ["min", "max", "colored"]) && vForm.label("min") === "Slider from" && vForm.label("max") === "Slider to"
+      && vForm.label("colored") === "Volume thresholds" && vForm.helper("colored") === "Split the slider into three volume ranges, each with its own color.", vForm.fields.join(", "));
+    check("FE-4 copy only in the panel", !buttonNamed(volume, "Copy to members")?.checkVisibility() && !buttonNamed(volume, "Copy from main")?.checkVisibility(), "no copy outside the panel");
+    vForm.edit({ colored: true });
+    check("FE-2 thresholds", sameJson(last(volume).volume_thresholds, [{ below: -30, color: "green" }, { below: -15, color: "yellow" }, { color: "red" }]),
+      JSON.stringify(last(volume)));
+    check("FE-2 thresholds", ["Quietest color", "Up to (dB)", "Middle color", "Loudest color"].every((l) => vForm.fields.some((n) => vForm.label(n) === l)), vForm.fields.map((n) => vForm.label(n)).join(", "));
+    vForm.edit({ split_1: -10, split_2: -40 });
+    check("FE-2 thresholds", sameJson(last(volume).volume_thresholds, [{ below: -40, color: "red" }, { below: -10, color: "yellow" }, { color: "green" }])
+      && note() === "The two threshold volumes were the other way round, so they were swapped, and the quietest and loudest colors moved with them.", `${JSON.stringify(last(volume).volume_thresholds)}; ${note()}`);
+    vForm.edit({ colored: false, min: -10, max: -40 });
+    check("FE-2 range", last(volume).min === -40 && last(volume).max === -10 && note() === "Slider from and Slider to were the other way round, so they were swapped.",
+      `${JSON.stringify(last(volume))}; ${note()}`);
+    volume.setConfig(last(volume));
+    vForm.edit({ min: undefined });
+    volume.setConfig(last(volume));
+    check("FE-2 empty", vForm.data.min === undefined && last(volume).min === -40, `an emptied field stays empty while typing (${vForm.data.min}, saved ${last(volume).min})`);
+  });
+</script>
