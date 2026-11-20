@@ -1,3 +1,15 @@
+const NAVY = "#001689";
+const SILVER = "#9ea1a2";
+const BASE = "font-family: DejaVu Sans, Verdana, Geneva, sans-serif; padding: 2px 6px; text-shadow: 0 1px 0 rgba(1, 1, 1, 0.3);";
+function printBadge(info) {
+    const url = `https://github.com/GizmoGoody/${info.repo}`;
+    console.groupCollapsed(`%c${info.icon} ${info.name}%cv${info.version}%c by GizmoGoody`, `${BASE} background-color: ${NAVY}; color: ${SILVER}; border-radius: 999px 0 0 999px; padding-left: 10px;`, `${BASE} background-color: ${SILVER}; color: ${NAVY}; border-radius: 0 999px 999px 0; padding-right: 10px; font-weight: bold;`, "font-style: italic; color: inherit;");
+    console.log(`%cDescription:%c ${info.description}`, "font-weight: bold;", "font-weight: normal;");
+    console.log(`%cGitHub:%c ${url}`, "font-weight: bold;", "font-weight: normal;");
+    console.log(`%cReport an issue:%c ${url}/issues`, "font-weight: bold;", "font-weight: normal;");
+    console.groupEnd();
+}
+
 /**
  * SVS Subwoofer dashboard card and tile features.
  *
@@ -18,10 +30,9 @@
  * Every corner, color and size comes from the theme's variables.
  */
 
-import { printBadge } from "@gizmogoody/card-badge";
 
 // Set from package.json when the card is built
-const VERSION = __CARD_VERSION__;
+const VERSION = "1.0.0";
 const DOMAIN = "svs_subwoofer";
 const CARD_TYPE = "svs-subwoofer-card";
 const EDITOR_TYPE = "svs-subwoofer-card-editor";
@@ -162,7 +173,6 @@ function withSubwooferAttributes(hass, entityId, picture) {
   const stateObj = hass?.states[entityId];
   if (!stateObj) return hass;
   const attributes = { ...stateObj.attributes, ...subwooferAttributes(hass, entityId) };
-  if (picture) attributes.entity_picture = picture;
   return { ...hass, states: { ...hass.states, [entityId]: { ...stateObj, attributes } } };
 }
 const unavailable = (stateObj) => !stateObj || stateObj.state === "unavailable";

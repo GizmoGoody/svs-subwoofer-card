@@ -1,0 +1,72 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SVS Subwoofer card: decisions and feedback</title>
+<style>
+  body { margin: 0; padding: 16px; background: #111; color: #ddd; font: 13px Roboto, "Segoe UI", sans-serif; }
+  pre { white-space: pre-wrap; }
+</style>
+<script src="stand-ins.js"></script>
+<script src="load.js"></script>
+<script src="checks.js"></script>
+<div id="cards"></div>
+<pre id="report" data-result="running">running</pre>
+<script>
+  // Each check is named by its line in tests/SPEC.md
+  const CONTRACTION = /\b\w+n't\b|\b\w+'(re|ll|ve|m|d)\b|\b(it|that|there|what|here|who)'s\b/i;
+
+  /** Every label, helper, option and text an editor shows. */
+  function wordsOf(root) {
+    const out = [];
+    for (const form of deep(root, "ha-form")) {
+      for (const name of form.fields) {
+        out.push(form.label(name), form.helper(name));
+        const options = form.field(name)?.selector?.select?.options ?? [];
+        out.push(...options.map((o) => (typeof o === "string" ? o : o.label)));
+      }
+    }
+    for (const el of deep(root, "*")) {
+      if (!el.shadowRoot && !el.children.length) out.push(el.textContent);
+      out.push(el.getAttribute?.("title"), el.getAttribute?.("aria-label"));
+    }
+    return out.filter((t) => typeof t === "string" && t.trim());
+  }
+
+  runChecks(async () => {
+    // B-1: the console badge is GizmoGoody's card-badge: 🔊 SVS Subwoofer Card, its version and the repository
+    check("B-1 badge", consoleLines.some((l) => l.includes("🔊") && l.includes("SVS Subwoofer Card") && l.includes("GizmoGoody")),
+      `the GizmoGoody badge (${consoleLines.find((l) => /svs/i.test(l))})`);
+    check("B-1 badge", consoleLines.some((l) => l.includes("https://github.com/GizmoGoody/svs-subwoofer-card")), "with the repository's link");
+
+    // C-1: the cards in the card picker
+    const cards = customCards.filter((c) => c.type.startsWith("svs-"));
+    check("C-1 picker", JSON.stringify(cards.map((c) => [c.type, c.name, c.preview])) === JSON.stringify([["svs-subwoofer-card", "SVS Subwoofer", true], ["svs-subwoofer-panel-card", "SVS Subwoofer panel (prototype)", true]]),
+      JSON.stringify(cards.map((c) => [c.type, c.name])));
+    check("C-1 picker", cards.every((c) => c.documentationURL?.startsWith("https://github.com/GizmoGoody/svs-subwoofer-card")), "linked to the README");
+
+    // W-1: no contractions anywhere the card writes text (editors, cards, features)
+    const hass = makeHass();
+    const editor = addEditor("svs-subwoofer-card-editor", { type: "custom:svs-subwoofer-card", entity: BOTH, finish: "black_ash" }, { hass });
+    const panelEditor = addEditor("svs-subwoofer-panel-card-editor", panelConfig({ finish: "fabric" }), { hass });
+    const presets = customElements.get("svs-subwoofer-presets").getConfigElement();
+    presets.hass = hass;
+    presets.context = { entity_id: BOTH };
+    presets.setConfig({ type: "custom:svs-subwoofer-presets", presets_shown: ["LOW", "Default"] });
+    const volume = customElements.get("svs-subwoofer-volume").getConfigElement();
+    volume.hass = hass;
+    volume.setConfig({ type: "custom:svs-subwoofer-volume", volume_thresholds: [{ below: -30, color: "green" }, { below: -15, color: "yellow" }, { color: "red" }] });
+    document.getElementById("cards").append(presets, volume);
+    const panel = addPanel("panel", { standby_badge: true, features: [{ type: "custom:svs-subwoofer-presets" }, { type: "custom:svs-subwoofer-volume" }, { type: "custom:svs-subwoofer-standby" }] },
+      { hass: makeHass({ "binary_sensor.subwoofer_left_connected": "off" }) });
+    await until(() => deep(panelEditor, "hui-tile-card-editor, [role=tab]").length && tilesOf(panel).length === 3);
+    await wait(100);
+    const words = [editor, panelEditor, presets, volume, panel].flatMap(wordsOf);
+    const found = words.filter((t) => CONTRACTION.test(t));
+    check("W-1 no contractions", !found.length && words.length > 50, `${words.length} texts (${found.join(" | ") || "none"})`);
+
+    // W-2: the standby mode is written On and Auto, never ON or Auto ON
+    check("W-2 On", !words.some((t) => /\bON\b/.test(t)), `no ON (${words.filter((t) => /\bON\b/.test(t)).join(" | ")})`);
+
+    // W-3: the panel's subwoofers are called Member subwoofers
+    check("W-3 Member subwoofers", words.some((t) => t.includes("Member subwoofers")) && !words.some((t) => /collapsible section|subwoofers shown/i.test(t)), "Member subwoofers everywhere");
+  });
+</script>

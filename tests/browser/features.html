@@ -1,0 +1,188 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SVS Subwoofer card: the tile features</title>
+<style>
+  body { margin: 0; padding: 16px; background: #111; color: #ddd; font: 13px Roboto, "Segoe UI", sans-serif; }
+  pre { white-space: pre-wrap; }
+</style>
+<script src="stand-ins.js"></script>
+<script src="load.js"></script>
+<script src="checks.js"></script>
+<div id="cards"></div>
+<pre id="report" data-result="running">running</pre>
+<script>
+  // Each check is named by its line in tests/SPEC.md
+  const labels = (feature) => buttonsOf(feature).map((b) => b.getAttribute("aria-label") ?? textOf(b));
+  const pressedOf = (feature) => buttonsOf(feature).find((b) => b.getAttribute("aria-pressed") === "true");
+  const THRESHOLDS = [{ below: -30, color: "green" }, { below: -15, color: "yellow" }, { color: "red" }];
+  // The colors shown in the slider, and how often each one is used
+  const colorsIn = (slider) => {
+    const count = {};
+    for (const el of slider.querySelectorAll("*")) {
+      const c = getComputedStyle(el).backgroundColor;
+      if (c !== "rgba(0, 0, 0, 0)" && getComputedStyle(el).display !== "none" && el.getBoundingClientRect().width > 4) count[c] = (count[c] ?? 0) + 1;
+    }
+    return count;
+  };
+
+  runChecks(async () => {
+    // N-1: the features' names, and the entities they are offered for
+    const svs = customCardFeatures.filter((f) => f.type.startsWith("svs-"));
+    check("N-1 names", JSON.stringify(svs.map((f) => f.name)) === JSON.stringify(["SVS Subwoofer presets", "SVS Subwoofer volume", "SVS Subwoofer standby mode"]),
+      svs.map((f) => f.name).join(", "));
+    const hass = makeHass();
+    check("N-1 offered", svs.every((f) => f.isSupported(hass, { entity_id: BOTH }) && f.isSupported(hass, { entity_id: "select.subwoofer_left_preset" }))
+      && svs.every((f) => !f.isSupported(hass, { entity_id: "number.kitchen_volume" })), "on any entity of a subwoofer or group, not on other integrations' entities");
+
+    // P-1: one button per preset, in the subwoofer's slot order; Default and Manual left out
+    const presets = addFeature({ type: "custom:svs-subwoofer-presets" });
+    await wait(50);
+    check("P-1 presets", JSON.stringify(labels(presets)) === '["LOW","MEDIUM","HIGH"]', labels(presets).join(", "));
+    const chosen = addFeature({ type: "custom:svs-subwoofer-presets", presets_shown: ["HIGH", "Default", "LOW"] });
+    await wait(50);
+    check("P-1 presets", JSON.stringify(labels(chosen)) === '["HIGH","Default","LOW"]', `the presets chosen, in the order chosen (${labels(chosen).join(", ")})`);
+
+    // P-3: the active preset filled in its color; LOW, MEDIUM and HIGH start green, yellow and red, with volume icons
+    check("P-3 active", pressedOf(presets)?.getAttribute("aria-label") === "MEDIUM", "MEDIUM is pressed");
+    const before = (b) => getComputedStyle(b, "::before");
+    const [low, medium, high] = buttonsOf(presets);
+    check("P-3 colors", before(low).backgroundColor === rgb("#4caf50") && before(medium).backgroundColor === rgb("#ffeb3b") && before(high).backgroundColor === rgb("#f44336"),
+      `green, yellow, red (${[low, medium, high].map((b) => before(b).backgroundColor).join(", ")})`);
+    check("P-3 colors", before(medium).opacity === "1" && Number(before(low).opacity) < 0.5, `the active one filled, the others tinted (${before(medium).opacity}, ${before(low).opacity})`);
+    check("P-3 icons", JSON.stringify(buttonsOf(presets).map((b) => b.querySelector("ha-icon")?.getAttribute("icon"))) === '["mdi:volume-low","mdi:volume-medium","mdi:volume-high"]',
+      "volume icons");
+    const own = addFeature({ type: "custom:svs-subwoofer-presets", presets: { LOW: { color: "purple", icon: "mdi:sleep" } } });
+    await wait(50);
+    check("P-3 own", before(buttonsOf(own)[0]).backgroundColor === rgb("#926bc7") && buttonsOf(own)[0].querySelector("ha-icon")?.getAttribute("icon") === "mdi:sleep",
+      "a preset's own color and icon");
+
+    // P-5: the active key's text reads on its color: dark or white, whichever contrasts more (WCAG)
+    const red = addFeature({ type: "custom:svs-subwoofer-presets", presets: { MEDIUM: { color: "red" } } });
+    const blue = addFeature({ type: "custom:svs-subwoofer-presets", presets: { MEDIUM: { color: "indigo" } } });
+    await wait(80);
+    const readable = (feature) => {
+      const key = pressedOf(feature);
+      const ratio = contrast(getComputedStyle(key).color, getComputedStyle(key, "::before").backgroundColor);
+      return [ratio, ratio >= Math.max(contrast("rgba(0, 0, 0, 0.85)", getComputedStyle(key, "::before").backgroundColor), contrast("#fff", getComputedStyle(key, "::before").backgroundColor)) - 0.01];
+    };
+    const results = [presets, red, blue].map(readable);
+    check("P-5 readable", results.every(([, best]) => best), `the better text on yellow, red and indigo (${results.map(([r]) => r.toFixed(1)).join(", ")})`);
+
+    // P-2: a preset button always loads its preset, even the one shown
+    const pressHass = makeHass();
+    const press = addFeature({ type: "custom:svs-subwoofer-presets" }, { hass: pressHass });
+    await wait(50);
+    pressedOf(press).click();
+    check("P-2 load", JSON.stringify(pressHass.calls) === JSON.stringify([{ domain: "select", service: "select_option", data: { entity_id: "select.subwoofer_both_preset", option: "MEDIUM" } }]),
+      JSON.stringify(pressHass.calls));
+
+    // P-6: a tap on a feature does not reach the cards around it (such as an expander card's header)
+    let reached = 0;
+    presets.parentElement.addEventListener("click", () => reached++);
+    buttonsOf(presets)[0].click();
+    check("P-6 taps", reached === 0, `the tap stays in the feature (${reached})`);
+
+    // P-4: the cycle button shows the active preset; a tap loads the next; from Manual, the first
+    const cycleHass = makeHass();
+    const cycle = addFeature({ type: "custom:svs-subwoofer-presets", style: "presets_cycle" }, { hass: cycleHass });
+    await wait(50);
+    check("P-4 cycle", buttonsOf(cycle).length === 1 && textOf(buttonsOf(cycle)[0]) === "MEDIUM", `one button, MEDIUM (${textOf(buttonsOf(cycle)[0])})`);
+    buttonsOf(cycle)[0].click();
+    check("P-4 cycle", cycleHass.calls.at(-1)?.data.option === "HIGH", `loads HIGH (${JSON.stringify(cycleHass.calls.at(-1))})`);
+    const manualHass = makeHass({ "select.subwoofer_both_preset": "Manual" });
+    const fromManual = addFeature({ type: "custom:svs-subwoofer-presets", style: "presets_cycle" }, { hass: manualHass });
+    await wait(50);
+    buttonsOf(fromManual)[0].click();
+    check("P-4 cycle", manualHass.calls.at(-1)?.data.option === "LOW", `from Manual, the first (${JSON.stringify(manualHass.calls.at(-1))})`);
+    const unknown = addFeature({ type: "custom:svs-subwoofer-presets", style: "presets_cycle" }, { hass: makeHass({ "select.subwoofer_both_preset": "unknown" }) });
+    await wait(50);
+    check("P-4 cycle", textOf(buttonsOf(unknown)[0]) === "Preset", `"Preset" while unknown (${textOf(buttonsOf(unknown)[0])})`);
+
+    // S-1: the standby mode as buttons: Auto, Trigger and On, styled like the preset buttons
+    const standbyHass = makeHass();
+    const standby = addFeature({ type: "custom:svs-subwoofer-standby" }, { hass: standbyHass });
+    await wait(50);
+    check("S-1 standby", JSON.stringify(buttonsOf(standby).map(textOf)) === '["Auto","Trigger","On"]', buttonsOf(standby).map(textOf).join(", "));
+    check("S-1 standby", textOf(pressedOf(standby)) === "Auto", "Auto is pressed");
+    buttonsOf(standby)[2].click();
+    check("S-1 standby", standbyHass.calls.at(-1)?.data.option === "ON" && standbyHass.calls.at(-1)?.data.entity_id === "select.subwoofer_both_standby_mode",
+      `On sets ON (${JSON.stringify(standbyHass.calls.at(-1))})`);
+    check("S-1 standby", getComputedStyle(buttonsOf(standby)[0]).borderRadius === getComputedStyle(buttonsOf(presets)[0]).borderRadius
+      && getComputedStyle(buttonsOf(standby)[0]).height === getComputedStyle(buttonsOf(presets)[0]).height, "the same buttons as the presets");
+
+    // S-2: the selected mode's text reads on the feature color from the first render
+    const first = addFeature({ type: "custom:svs-subwoofer-standby" });
+    await wait(50);
+    check("S-2 readable", getComputedStyle(pressedOf(first)).color === "rgba(0, 0, 0, 0.85)", `dark on the light blue (${getComputedStyle(pressedOf(first)).color})`);
+
+    // V-1: the slider's range: the whole -60 to 0 dB, or Slider from and Slider to
+    const ranges = [{}, { min: -30, max: -5 }, { min: -5, max: -30 }, { min: -20, max: -20 }].map((config) => addFeature({ type: "custom:svs-subwoofer-volume", ...config }));
+    await settle();
+    const range = (feature) => `${sliderOf(feature).getAttribute("aria-valuemin")}..${sliderOf(feature).getAttribute("aria-valuemax")}`;
+    check("V-1 range", JSON.stringify(ranges.map(range)) === JSON.stringify(["-60..0", "-30..-5", "-30..-5", "-60..0"]),
+      `the full range, From and To, swapped ends, equal ends (${ranges.map(range).join(", ")})`);
+
+    // V-2: thresholds: three ranges shown faintly; the filled part in the color of the range it ends in
+    const loud = addFeature({ type: "custom:svs-subwoofer-volume", volume_thresholds: THRESHOLDS });
+    const quiet = addFeature({ type: "custom:svs-subwoofer-volume", volume_thresholds: THRESHOLDS }, { hass: makeHass({ [BOTH]: "-40" }) });
+    await wait(50);
+    const loudSlider = sliderOf(loud), quietSlider = sliderOf(quiet);
+    const loudColors = colorsIn(loudSlider), quietColors = colorsIn(quietSlider);
+    check("V-2 thresholds", loudColors[rgb("#4caf50")] === 1 && loudColors[rgb("#ffeb3b")] === 1 && loudColors[rgb("#f44336")] === 2,
+      `at -12 dB, the fill is red (${JSON.stringify(loudColors)})`);
+    check("V-2 thresholds", quietColors[rgb("#4caf50")] === 2, `at -40 dB, the fill is green (${JSON.stringify(quietColors)})`);
+
+    // V-3: a drag sets the volume once, where it ends, and the slider stays there until the subwoofer reports it
+    const dragHass = makeHass();
+    const volume = addFeature({ type: "custom:svs-subwoofer-volume" }, { hass: dragHass });
+    await wait(50);
+    const slider = sliderOf(volume);
+    drag(slider, [0.5, 0.6, 0.75]);
+    check("V-3 drag", JSON.stringify(dragHass.calls) === JSON.stringify([{ domain: "number", service: "set_value", data: { entity_id: BOTH, value: -15 } }]),
+      JSON.stringify(dragHass.calls));
+    volume.hass = changed(dragHass, {});
+    await settle();
+    check("V-3 drag", slider.getAttribute("aria-valuenow") === "-15", `no jump back while the command runs (${slider.getAttribute("aria-valuenow")})`);
+
+    // V-4: a cancelled drag ends where it was, not at the left end
+    const cancelHass = makeHass();
+    const cancelled = addFeature({ type: "custom:svs-subwoofer-volume" }, { hass: cancelHass });
+    await wait(50);
+    drag(sliderOf(cancelled), [0.5, 0.75], { cancel: true });
+    check("V-4 cancel", cancelHass.calls.at(-1)?.data.value === -15, `ends at -15 dB (${JSON.stringify(cancelHass.calls)})`);
+
+    // V-5: the arrow keys move the volume, sent once the keys stop
+    const keyHass = makeHass();
+    const keyed = addFeature({ type: "custom:svs-subwoofer-volume" }, { hass: keyHass });
+    await wait(50);
+    sliderOf(keyed).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    sliderOf(keyed).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    sliderOf(keyed).dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }));
+    await wait(50);
+    check("V-5 keys", keyHass.calls.at(-1)?.data.value === -10, `two steps up (${JSON.stringify(keyHass.calls)})`);
+
+    // V-6: while the slider moves, its value shows above it, outside the control (nothing clips it)
+    const tipHass = makeHass();
+    const tipped = addFeature({ type: "custom:svs-subwoofer-volume" }, { hass: tipHass });
+    await wait(50);
+    const tipSlider = sliderOf(tipped);
+    const rect = tipSlider.getBoundingClientRect();
+    tipSlider.setPointerCapture = () => {};
+    tipSlider.dispatchEvent(new PointerEvent("pointerdown", { clientX: rect.left + rect.width * 0.75, clientY: rect.top + 5, pointerId: 1, bubbles: true }));
+    await wait(250);
+    for (const el of tipped.shadowRoot.querySelectorAll("*")) el.getAnimations().forEach((a) => a.finish());
+    const tip = [...tipped.shadowRoot.querySelectorAll("*")].find((el) => textOf(el) === "-15 dB" && !el.children.length);
+    check("V-6 callout", !!tip && Number(getComputedStyle(tip).opacity) === 1 && tip.getBoundingClientRect().bottom <= rect.top + 1 && !tipSlider.contains(tip),
+      `"-15 dB" above the slider (${tip ? `opacity ${getComputedStyle(tip).opacity}, ${Math.round(tip.getBoundingClientRect().bottom)} <= ${Math.round(rect.top)}` : "none"})`);
+    tipSlider.dispatchEvent(new PointerEvent("pointerup", { clientX: rect.left + rect.width * 0.75, clientY: rect.top + 5, pointerId: 1, bubbles: true }));
+
+    // L-1: a feature with nothing to show takes no place
+    const noStandby = makeHass();
+    delete noStandby.entities["select.subwoofer_left_standby_mode"];
+    const card = addCard("no standby", { entity: LEFT, features: [{ type: "custom:svs-subwoofer-standby" }] }, { hass: noStandby });
+    await until(() => deep(card, "hui-card-feature").length);
+    await wait(100);
+    const item = deep(card, "hui-card-feature")[0];
+    check("L-1 no place", getComputedStyle(item).display === "none", `the empty feature takes no place (${item.getBoundingClientRect().height} px)`);
+  });
+</script>

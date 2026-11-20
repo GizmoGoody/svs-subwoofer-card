@@ -1,27 +1,69 @@
-name: Validate
+# Checks every push and pull request: typecheck, unit tests, the build, and
+# both test suites on the built card and on the card before the TypeScript rewrite
+# (reference/prototype.js). The alpha workflow runs it too, before it
+# publishes (pushes to main run it there, not here).
+#
+# HACS validation needs a release with the built card attached, so it runs
+# in release.yml
+name: CI
 
 on:
   push:
+    branches-ignore: [main]
   pull_request:
+  workflow_call:
   workflow_dispatch:
 
-# HACS validation needs a release with the built card attached, so it runs
-# in release.yml
+permissions:
+  contents: read
 
 jobs:
+  test:
+    name: Build, unit and browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # The versions in the lockfile, exactly
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Browser tests (the card before the rewrite)
+        run: python3 tests/browser/run.py reference/prototype.js
+
+      - name: Browser tests (the built card)
+        run: python3 tests/browser/run.py
+
   ui:
     # Home Assistant's real frontend with the integration's fake subwoofers:
     # the tests run inside a checkout of the integration, at a pinned release,
     # and use its own test fixtures
-    name: Card UI tests
+    name: Card UI tests (${{ matrix.bundle }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        bundle: [dist, prototype]
     env:
       INTEGRATION_REF: v1.10.1
       # The card as deployed before the move: the gallery is compared with it
       ORIGINAL_CARD_REF: 9f6ea49dd7fb5d07b34c2ca6a512eb5b1d85797b
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: card
           fetch-depth: 0
@@ -29,8 +71,9 @@ jobs:
         run: |
           git -C card show "$ORIGINAL_CARD_REF:svs-subwoofer-card.js" > original-card.js
           # Changes made on purpose are applied to it, so only others show
-          python3 card/tests/ui/accepted_changes.py original-card.js
-      - uses: actions/checkout@v4
+          # The rewrite (dist) also fixes bugs the prototype still has
+          python3 card/tests/ui/accepted_changes.py original-card.js ${{ matrix.bundle == 'dist' && '--fixes' || '' }}
+      - uses: actions/checkout@v5
         with:
           repository: dangerouslaser/svs-subwoofer-ha
           ref: ${{ env.INTEGRATION_REF }}
@@ -38,16 +81,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: card/package-lock.json
+          node-version: 22
       - name: Build the card
+        if: matrix.bundle == 'dist'
         working-directory: card
         run: |
-          npm ci
+          npm ci --no-audit --no-fund
           npm run build
+      - name: Choose the bundle
+        run: |
+          if [ "${{ matrix.bundle }}" = dist ]; then
+            echo "SVS_CARD=$GITHUB_WORKSPACE/card/dist/svs-subwoofer-card.js" >> "$GITHUB_ENV"
+          else
+            echo "SVS_CARD=$GITHUB_WORKSPACE/card/reference/prototype.js" >> "$GITHUB_ENV"
+          fi
       - name: Install test dependencies
         working-directory: integration
         run: |
@@ -62,7 +111,6 @@ jobs:
       - name: Run the card UI tests
         working-directory: integration
         env:
-          SVS_CARD: ${{ github.workspace }}/card/dist/svs-subwoofer-card.js
           SVS_BASELINE: ${{ github.workspace }}/original-card.js
           SVS_UI_OUT: ${{ github.workspace }}/ui-results
         run: pytest tests/test_card_ui.py -q -rs -s
@@ -70,6 +118,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: card-ui
+          name: card-ui-${{ matrix.bundle }}
           path: ui-results
           if-no-files-found: ignore

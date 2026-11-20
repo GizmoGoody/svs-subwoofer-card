@@ -1,0 +1,139 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SVS Subwoofer card: the panel card</title>
+<style>
+  body { margin: 0; padding: 16px; background: #111; color: #ddd; font: 13px Roboto, "Segoe UI", sans-serif; }
+  pre { white-space: pre-wrap; }
+</style>
+<script src="stand-ins.js"></script>
+<script src="load.js"></script>
+<script src="checks.js"></script>
+<div id="cards"></div>
+<pre id="report" data-result="running">running</pre>
+<script>
+  // Each check is named by its line in tests/SPEC.md
+  try {
+    localStorage.clear();
+  } catch {
+    // no storage here: the panel works without it
+  }
+  const nameOf = (tile) => textOf(deep(tile, "ha-tile-info")[0]?.firstElementChild);
+  const rowsShown = (panel) => tilesOf(panel).slice(1).filter((t) => t.getBoundingClientRect().height > 0).length;
+  const headerCard = (panel) => deep(panel, "svs-subwoofer-card")[0];
+  const tapHeader = (panel) => deep(tilesOf(panel)[0], "ha-card")[0].click();
+
+  runChecks(async () => {
+    // M-1: the group's card above its member subwoofers, named without what they share
+    const panel = addPanel("deployed", {});
+    await until(() => tilesOf(panel).length === 3 && driverOf(headerCard(panel)));
+    check("M-1 panel", JSON.stringify(tilesOf(panel).map(nameOf)) === '["Both","Left","Right"]', `the group, then Left and Right (${tilesOf(panel).map(nameOf).join(", ")})`);
+    check("M-1 panel", rowsShown(panel) === 2, `shown at load by default (${rowsShown(panel)})`);
+    tapHeader(panel);
+    await wait(30);
+    check("M-1 toggle", rowsShown(panel) === 0, `a tap on the card hides the member subwoofers (${rowsShown(panel)})`);
+    tapHeader(panel);
+    await wait(30);
+    check("M-1 toggle", rowsShown(panel) === 2, "and shows them again");
+    tapHeader(panel);
+    const again = addPanel("remembered", {});
+    await until(() => tilesOf(again).length === 3);
+    check("M-1 remembered", rowsShown(again) === 0, "this browser remembers whether they are shown");
+    const closed = addPanel("closed at load", { entity: "number.subwoofer_both_volume", members_open: false });
+    await until(() => tilesOf(closed).length === 3);
+    check("M-1 remembered", rowsShown(closed) === 0, "Show the member subwoofers at load off, or remembered closed: hidden");
+
+    // M-2: without Tap the card to show or hide, they always show and the card keeps its own tap
+    const always = addPanel("always open", { members_toggle: false, tap_action: { action: "perform-action", perform_action: "script.turn_on", target: { entity_id: "script.x" } } });
+    await until(() => tilesOf(always).length === 3);
+    const actionsBefore = actions.length;
+    tapHeader(always);
+    await wait(30);
+    check("M-2 no toggle", rowsShown(always) === 2 && actions[actionsBefore]?.perform_action === "script.turn_on", "always shown; the card's own tap action runs");
+
+    // M-6: the cards in the panel do not highlight on hover (they are parts of one surface); a card alone does
+    const hover = (tile) => getComputedStyle(deep(tile, "ha-tile-container")[0]).getPropertyValue("--ha-ripple-hover-opacity").trim();
+    const alone = addCard("alone", { entity: LEFT });
+    await until(() => driverOf(alone));
+    await wait(30);
+    check("M-6 hover", tilesOf(panel).every((t) => hover(t) === "0") && hover(tileOf(alone)) === ".04",
+      `no hover highlight in the panel (${tilesOf(panel).map(hover).join(", ")}; alone ${hover(tileOf(alone))})`);
+
+    // M-3: the finish covers the whole panel; its cards are see-through
+    const finished = addPanel("finished", { finish: "black_oak", features_style: "console" });
+    await until(() => tilesOf(finished).length === 3 && Math.abs(finished.shadowRoot.querySelector("canvas").height - finished.getBoundingClientRect().height) <= 2, 3000);
+    const own = [...finished.shadowRoot.querySelectorAll("canvas")][0];
+    check("M-3 finish", shown(own) && Math.abs(own.height - finished.getBoundingClientRect().height) <= 2,
+      `one finish across the panel (${own.height} of ${Math.round(finished.getBoundingClientRect().height)} px)`);
+    check("M-3 finish", deep(finished, "svs-subwoofer-card").every((c) => !shown(deep(c, "canvas")[0]))
+      && tilesOf(finished).every((t) => getComputedStyle(deep(t, "ha-card")[0]).backgroundColor === "rgba(0, 0, 0, 0)"), "the cards in it are see-through");
+    const rowSlider = sliderOf(featureOf(deep(finished, "svs-subwoofer-card")[1], "svs-subwoofer-volume"));
+    check("M-3 finish", getComputedStyle(rowSlider).getPropertyValue("--svs-bezel").trim() === "#1f1b17", "the member subwoofers take the panel's finish and features style");
+
+    // M-4: the group's badge shows its member subwoofers together, and a tap on its driver connects or disconnects them
+    const badgeOf = (p) => bluetoothBadgeOf(headerCard(p))?.getAttribute("aria-label");
+    check("M-4 group badge", badgeOf(panel) === "All connected", badgeOf(panel));
+    const someHass = makeHass({ "binary_sensor.subwoofer_left_connected": "off" });
+    const some = addPanel("one connected", {}, { hass: someHass });
+    const noneConnected = addPanel("none connected", {}, { hass: makeHass({ "binary_sensor.subwoofer_left_connected": "off", "binary_sensor.subwoofer_right_connected": "off" }) });
+    await until(() => driverOf(headerCard(some)) && driverOf(headerCard(noneConnected)));
+    await wait(30);
+    check("M-4 group badge", badgeOf(some) === "1 of 2 connected" && badgeOf(noneConnected) === "None connected", `${badgeOf(some)}; ${badgeOf(noneConnected)}`);
+    const someColor = getComputedStyle(bluetoothBadgeOf(headerCard(some))).color, allColor = getComputedStyle(bluetoothBadgeOf(headerCard(panel))).color;
+    check("M-4 group badge", allColor === rgb("#2196f3") && someColor === rgb("#ffa600"), `blue when all are connected, amber when some (${allColor}, ${someColor})`);
+    driverOf(headerCard(some)).click();
+    check("M-4 tap", JSON.stringify(someHass.calls.at(-1)?.data) === '{"entity_id":["button.subwoofer_left_reconnect"]}', `reconnects only the one that is not connected (${JSON.stringify(someHass.calls)})`);
+    const allHass = makeHass();
+    const all = addPanel("all connected", {}, { hass: allHass });
+    await until(() => driverOf(headerCard(all)));
+    driverOf(headerCard(all)).click();
+    check("M-4 tap", JSON.stringify(allHass.calls.at(-1)?.data) === '{"entity_id":["button.subwoofer_left_disconnect","button.subwoofer_right_disconnect"]}',
+      `disconnects both when both are connected (${JSON.stringify(allHass.calls)})`);
+    const rowHass = makeHass({ "binary_sensor.subwoofer_right_connected": "off" });
+    const rows = addPanel("row tap", {}, { hass: rowHass });
+    await until(() => deep(rows, "svs-subwoofer-card").length === 3 && driverOf(deep(rows, "svs-subwoofer-card")[2]));
+    driverOf(deep(rows, "svs-subwoofer-card")[2]).click();
+    check("M-4 tap", JSON.stringify(rowHass.calls.at(-1)?.data) === '{"entity_id":["button.subwoofer_right_reconnect"]}', `a member's driver reconnects that subwoofer (${JSON.stringify(rowHass.calls)})`);
+
+    // M-5: a group whose member subwoofers disagree shows their range, their presets and M; its slider moves them together
+    const mixedHass = makeHass({
+      [BOTH]: "unknown", "select.subwoofer_both_preset": "unknown", "select.subwoofer_both_standby_mode": "unknown",
+      [LEFT]: "-20", [RIGHT]: "-10", "select.subwoofer_left_preset": "LOW", "select.subwoofer_right_preset": "HIGH", "select.subwoofer_right_standby_mode": "ON",
+    });
+    const mixed = addPanel("mixed", { standby_badge: true }, { hass: mixedHass });
+    await until(() => driverOf(headerCard(mixed)) && sliderOf(featureOf(headerCard(mixed), "svs-subwoofer-volume")));
+    await wait(30);
+    check("M-5 mixed", secondaryOf(headerCard(mixed)) === "-20 to -10 dB · LOW / HIGH", `the range and the presets (${secondaryOf(headerCard(mixed))})`);
+    const letter = standbyBadgeOf(headerCard(mixed));
+    check("M-5 mixed", textOf(letter) === "M" && letter.title === "Standby mode: Mixed (Auto, On)", `M (${textOf(letter)}, ${letter?.title})`);
+    const span = sliderOf(featureOf(headerCard(mixed), "svs-subwoofer-volume"));
+    check("M-5 mixed", span.getAttribute("aria-valuetext") === "-20 to -10 dB", `the slider spans them (${span.getAttribute("aria-valuetext")})`);
+    const mark = mixedHass.calls.length;
+    drag(span, [0.5, 0.6]);
+    const moved = callsSince(mixedHass, mark).map((c) => `${c.data.entity_id} ${c.data.value}`).sort();
+    check("M-5 mixed", JSON.stringify(moved) === JSON.stringify([`${LEFT} -14`, `${RIGHT} -4`]), `both move by the drag, keeping their difference (${moved.join(", ")})`);
+    const ring = ringOf(headerCard(mixed));
+    check("M-5 mixed", !!ring, `the driver follows the loudest (${ring})`);
+
+    // M-7: wrong member settings are refused with a message
+    let message = "";
+    try {
+      document.createElement("svs-subwoofer-panel-card").setConfig({ type: "custom:svs-subwoofer-panel-card", entity: BOTH, members: [{ name: "x" }] });
+    } catch (err) {
+      message = err.message;
+    }
+    check("M-7 options", message === "members must be a list of card settings, each with an entity", message);
+
+    // M-8: a new panel: the group, with every subwoofer below it by name
+    const stub = customElements.get("svs-subwoofer-panel-card").getStubConfig(makeHass());
+    check("M-8 stub", stub.entity === BOTH && JSON.stringify(stub.members.map((m) => m.entity)) === JSON.stringify([LEFT, RIGHT])
+      && JSON.stringify(stub.members[0]) === JSON.stringify({ entity: LEFT, state_content: ["state", "preset", "standby_mode"], features: [{ type: "custom:svs-subwoofer-volume" }], features_position: "inline" }),
+      JSON.stringify(stub.members));
+
+    // M-9: the panel's Bluetooth badge, driver ring, standby badge and shake settings apply to its member subwoofers
+    const plain = addPanel("plain rows", { bluetooth: "off", standby_badge: true });
+    await until(() => deep(plain, "svs-subwoofer-card").length === 3 && driverOf(deep(plain, "svs-subwoofer-card")[1]));
+    await wait(30);
+    const row = deep(plain, "svs-subwoofer-card")[1];
+    check("M-9 rows", !shown(bluetoothBadgeOf(row)) && textOf(standbyBadgeOf(row)) === "A", "Hide and the standby badge reach the rows");
+  });
+</script>

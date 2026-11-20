@@ -98,6 +98,51 @@
     .map((el) => (el.shadowRoot ? deepText(el.shadowRoot) : el.children.length ? "" : el.textContent))
     .join(" ").replace(/\s+/g, " ");
 
+  // The card's parts, found by tag, role, label and text (never by its
+  // private fields or classes)
+  const deepAll = (root, selector, found = []) => {
+    for (const el of root.querySelectorAll("*")) {
+      if (el.matches(selector)) found.push(el);
+      if (el.shadowRoot) deepAll(el.shadowRoot, selector, found);
+    }
+    return found;
+  };
+  const tileOf = (card) => deepAll(card.shadowRoot, "hui-tile-card")[0];
+  const headerOf = (panel) => deepAll(panel.shadowRoot, "svs-subwoofer-card")[0];
+  const membersOf = (panel) => deepAll(panel.shadowRoot, "svs-subwoofer-card").slice(1);
+  const membersShown = (panel) => membersOf(panel).some((c) => c.getBoundingClientRect().height > 0);
+  // The finish a card or panel draws itself: its own canvas, shown
+  const ownCanvas = (el) => [...el.shadowRoot.querySelectorAll("canvas")].find((c) => getComputedStyle(c).display !== "none");
+  const bluetoothBadge = (card) => [...card.shadowRoot.querySelectorAll('[role="img"][aria-label]')]
+    .find((b) => /connected/i.test(b.getAttribute("aria-label")) && getComputedStyle(b).display !== "none");
+  const standbyBadge = (card) => [...card.shadowRoot.querySelectorAll("[title]")].find((b) => /^Standby mode/.test(b.title));
+  const sliderOf = (feature) => feature.shadowRoot.querySelector('[role="slider"]');
+  // The value callout: the text in dB beside the slider (not inside it)
+  const calloutOf = (feature) => [...feature.shadowRoot.querySelectorAll("*")]
+    .find((el) => !el.children.length && / dB$/.test(el.textContent) && !sliderOf(feature)?.contains(el));
+  const visible = (el) => !!el && Number(getComputedStyle(el).opacity) > 0.5 && getComputedStyle(el).display !== "none";
+  // The main card's editor inside the panel's editor: the one showing the tile card's options
+  const mainCardEditor = (panelEditor) => [...panelEditor.shadowRoot.querySelectorAll("svs-subwoofer-card-editor")]
+    .find((e) => [...e.shadowRoot.querySelectorAll("*")].some((n) => n.localName.endsWith("tile-card-editor")));
+  // What clips between an element and the card or panel around it
+  const clippedBetween = (el, host) => {
+    const found = [];
+    for (let n = el.parentNode ?? el.host; n && n !== host; n = n.parentNode ?? n.host) {
+      if (n.nodeType === 1 && getComputedStyle(n).overflow !== "visible") found.push(n.localName);
+    }
+    return found;
+  };
+  // A card's name as it shows: the first line of its tile card
+  const shownName = (card) => deepAll(card.shadowRoot ?? card, "ha-tile-info")[0]?.textContent.trim().split("\n")[0].trim();
+  // A real mouse click on an element, as on a dashboard
+  const realClick = (el) => new Promise((resolve) => {
+    const r = el.getBoundingClientRect();
+    const id = Math.random().toString(36).slice(2);
+    (window.__svsClicks ??= {})[id] = resolve;
+    window.__svsClickDone ??= (done) => { window.__svsClicks[done]?.(); delete window.__svsClicks[done]; };
+    window.svsRealClick(JSON.stringify({ id, x: r.left + r.width / 2, y: r.top + r.height / 2 }));
+  });
+
   // The states with the group's two subwoofers disagreeing: different
   // volumes, presets and standby modes, so the group reports unknown
   const mixedStates = () => {
@@ -205,7 +250,7 @@
       const img = await until(() => card.shadowRoot.querySelector("hui-tile-card").shadowRoot.querySelector("ha-tile-icon")
         .shadowRoot?.querySelector("img"), "the driver picture");
       if (!img.src.startsWith("data:image/svg")) throw new Error(`the icon is not the driver: ${img.src.slice(0, 40)}`);
-      await until(() => card.shadowRoot.querySelector(".badge.on"), "the Bluetooth badge");
+      await until(() => bluetoothBadge(card), "the Bluetooth badge");
     });
 
     await test("deployed panel: the group above its two subwoofers, rows hidden until a tap", async () => {
@@ -218,32 +263,28 @@
       panel.setConfig(config);
       panel.hass = hass();
       stage().append(panel);
-      const root = panel.shadowRoot;
-      const header = await until(() => root.querySelector(".header svs-subwoofer-card"), "the header card");
-      await until(() => header.shadowRoot.querySelector("hui-tile-card")?.shadowRoot?.querySelector("ha-tile-icon"), "the header's tile card");
-      await until(() => root.querySelector(".panel.finished"), "the fabric finish across the panel");
-      if (root.querySelector(".panel.open")) throw new Error("the rows show at load (members_open is false)");
+      const header = await until(() => headerOf(panel), "the header card");
+      await until(() => tileOf(header)?.shadowRoot?.querySelector("ha-tile-icon"), "the header's tile card");
+      await until(() => ownCanvas(panel), "the fabric finish across the panel");
+      await until(() => membersOf(panel).length === 2, "the two rows");
+      await sleep(300);
+      if (membersShown(panel)) throw new Error("the rows show at load (members_open is false)");
       // The header's badge shows the two subwoofers together
-      const badge = await until(() => header.shadowRoot.querySelector(".badge.on"), "the header's Bluetooth badge");
-      if (!/connected/i.test(badge.title)) throw new Error(`the badge says "${badge.title}"`);
+      const badge = await until(() => bluetoothBadge(header), "the header's Bluetooth badge");
+      if (!/connected/i.test(badge.getAttribute("aria-label"))) throw new Error(`the badge says "${badge.getAttribute("aria-label")}"`);
       // Inline: the first feature sits in the right half of the first row, the next below
-      const tileRoot = header.shadowRoot.querySelector("hui-tile-card").shadowRoot;
+      const tileRoot = tileOf(header).shadowRoot;
       const inline = await until(() => tileRoot.querySelector('hui-card-features[slot="features-inline"]'), "the inline first feature");
       const below = await until(() => tileRoot.querySelector('hui-card-features[slot="features"]'), "the features below");
       const box = header.getBoundingClientRect(), a = inline.getBoundingClientRect(), b = below.getBoundingClientRect();
       if (a.left < box.left + box.width / 2 - 24) throw new Error(`the first feature starts at ${Math.round(a.left - box.left)} of ${Math.round(box.width)} px`);
       if (b.top < a.bottom) throw new Error("the second feature is not below the first row");
-      const rows = await until(() => {
-        const cards = root.querySelectorAll(".members svs-subwoofer-card");
-        return cards.length === 2 && cards;
-      }, "the two rows");
-      // A tap on the header card shows the rows
-      header.shadowRoot.querySelector("hui-tile-card").dispatchEvent(new CustomEvent("ll-custom", {
-        bubbles: true, composed: true, detail: { svs_subwoofer_panel: "toggle" },
-      }));
-      await until(() => root.querySelector(".panel.open"), "the rows to open after a tap");
+      const rows = membersOf(panel);
+      // A real click on the header card's name shows the rows
+      await realClick(tileRoot.querySelector("ha-tile-info"));
+      await until(() => membersShown(panel), "the rows to open after a tap");
       for (const row of rows) {
-        await until(() => row.shadowRoot.querySelector("hui-tile-card")?.shadowRoot?.querySelector("ha-tile-icon"), "a row's tile card");
+        await until(() => tileOf(row)?.shadowRoot?.querySelector("ha-tile-icon"), "a row's tile card");
       }
       try { localStorage.removeItem(`svs-subwoofer-panel:${group}`); } catch (err) { /* no storage */ }
     });
@@ -267,12 +308,12 @@
       panel.hass = { ...hass(), states };
       stage().append(panel);
       const cards = await until(() => {
-        const all = [panel.shadowRoot.querySelector(".header svs-subwoofer-card"), ...panel.shadowRoot.querySelectorAll(".members svs-subwoofer-card")];
-        return all.length === 3 && all.every((c) => c?.shadowRoot.querySelector("hui-tile-card")?.shadowRoot) && all;
+        const all = [headerOf(panel), ...membersOf(panel)];
+        return all.length === 3 && all.every((c) => c && tileOf(c)?.shadowRoot) && all;
       }, "the three cards");
       for (const card of cards) {
-        const tile = card.shadowRoot.querySelector("hui-tile-card");
-        const name = card._config?.name;
+        const tile = tileOf(card);
+        const name = shownName(card);
         await until(() => /MEDIUM/.test(deepText(tile.shadowRoot)), `${name}: the preset in the state content`)
           .catch(() => { throw new Error(`${name}'s state content says: ${deepText(tile.shadowRoot)}`); });
         // Read where the ripple reads it: the tile card's container sets its own
@@ -308,7 +349,7 @@
       el.setConfig({ type: "custom:svs-subwoofer-card", entity: first, state_content: ["state", "preset", "standby_mode"] });
       const tile = await tileEditorIn(el);
       setFormValue(mainForm(tile), { state_content: ["state", "preset"] });
-      await until(() => same(tile._config?.state_content, ["state", "preset"]), "the form to show two state contents");
+      await until(() => same(mainForm(tile).data?.state_content, ["state", "preset"]), "the form to show two state contents");
       expectEqual(saved.at(-1).state_content, ["state", "preset"], "saved state content");
     });
 
@@ -330,7 +371,7 @@
         features: [{ type: "custom:svs-subwoofer-volume", min: -50, max: 0, volume_thresholds: thresholds }],
         members: [{ entity: first, state_content: ["state", "preset", "standby_mode"], features: [{ type: "custom:svs-subwoofer-volume" }], features_position: "inline" }],
       });
-      const tabs = () => [...el.shadowRoot.querySelectorAll(".tab")];
+      const tabs = () => [...el.shadowRoot.querySelectorAll('[role="tab"]')];
       await until(() => tabs().length === 1, "the tabs");
       expectEqual(tabs().map((t) => t.textContent), ["1"], "tab labels");
       // As on the xTool card: the main subwoofer's tile card options first,
@@ -340,23 +381,23 @@
       expectEqual(sections.map((p) => p.querySelector('[slot="header"]')?.textContent), ["SVS Subwoofer", "Member subwoofers"], "the sections");
       if (!sections.every((p) => p.expanded)) throw new Error("a section starts collapsed");
       const [svsSection, rowsSection] = sections;
-      const cardAbove = await until(() => el.shadowRoot.getElementById("card")?.querySelector("svs-subwoofer-card-editor"), "the main subwoofer's editor");
-      if (!cardAbove) throw new Error("the main subwoofer's tile card options are not at the top");
+      const cardAbove = await until(() => mainCardEditor(el), "the main subwoofer's editor");
       if (!(cardAbove.compareDocumentPosition(svsSection) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error("the tile card options are not before the SVS Subwoofer section");
-      if (cardAbove.shadowRoot.querySelector("ha-expansion-panel")?.style.display !== "none") throw new Error("the main subwoofer's options show the style options too");
-      // The main entity picker says to choose the group subwoofer
-      const mainTile = await until(() => [...cardAbove.shadowRoot.querySelectorAll("*")].find((n) => n.localName.endsWith("tile-card-editor")), "the main tile card options");
-      expectEqual(mainTile._computeHelperCallback({ name: "entity" }), "With Member subwoofers, choose their group subwoofer.", "the main entity helper");
-      expectEqual(mainTile._computeHelperCallback({ name: "features_position" }), undefined, "the other helpers");
+      if ([...cardAbove.shadowRoot.querySelectorAll("ha-expansion-panel")].some((p) => p.checkVisibility())) throw new Error("the main subwoofer's options show the style options too");
+      // The main entity picker says to choose the group subwoofer (the helper its form shows)
+      const mainTile = await until(() => [...cardAbove.shadowRoot.querySelectorAll("*")].find((n) => n.localName.endsWith("tile-card-editor") && n.shadowRoot?.querySelector("ha-form")), "the main tile card options");
+      const helperOf = (name) => mainForm(mainTile).computeHelper?.({ name });
+      expectEqual(helperOf("entity"), "With Member subwoofers, choose their group subwoofer.", "the main entity helper");
+      if (helperOf("features_position") === helperOf("entity")) throw new Error("the other fields show the main entity's helper");
       const style = await until(() => svsSection.querySelector("svs-subwoofer-card-editor"), "the card's style options");
-      await until(() => style.shadowRoot.querySelector("#finish")?.schema?.length, "the Finish field");
+      await until(() => [...style.shadowRoot.querySelectorAll("ha-form")].some((f) => f.schema?.some((s) => s.name === "finish")), "the Finish field");
       if ([...style.shadowRoot.querySelectorAll("*")].some((n) => n.localName.endsWith("tile-card-editor"))) throw new Error("the SVS Subwoofer section shows the tile card's options");
-      if (!rowsSection.querySelector(".tabs")) throw new Error("the tabs are not in the rows' section");
+      if (!rowsSection.querySelector('[role="tablist"]')) throw new Error("the tabs are not in the rows' section");
 
       // State content and features stay as edited (the first tab is open)
       const tile = await tileEditorIn(el);
       setFormValue(mainForm(tile), { state_content: ["state", "preset"] });
-      await until(() => same(tile._config?.state_content, ["state", "preset"]), "the row's form to show two state contents");
+      await until(() => same(mainForm(tile).data?.state_content, ["state", "preset"]), "the row's form to show two state contents");
       expectEqual(saved.at(-1).members[0].state_content, ["state", "preset"], "saved row state content");
       setFeatures(tile, [{ type: "custom:svs-subwoofer-volume" }, { type: "custom:svs-subwoofer-presets", style: "presets_cycle" }]);
       await until(() => featuresEditor(tile)?.features?.length === 2, "the row's features list to show two features");
@@ -374,7 +415,7 @@
       // The card: its edits stay, and the rows are kept
       const cardTile = await tileEditorIn(cardAbove);
       setFormValue(mainForm(cardTile), { state_content: ["state"] });
-      await until(() => same(cardTile._config?.state_content, ["state"]), "the card's form to show one state content");
+      await until(() => same(mainForm(cardTile).data?.state_content, ["state"]), "the card's form to show one state content");
       expectEqual(saved.at(-1).state_content, ["state"], "saved card state content");
       expectEqual(saved.at(-1).members.length, 2, "rows kept after a card edit");
     });
@@ -415,11 +456,14 @@
       feature.hass = { ...hass(), callService: (domain, service, data) => calls.push(data) };
       feature.context = { entity_id: first };
       stage().append(feature);
-      const control = await until(() => feature.shadowRoot.querySelector(".control"), "the slider");
+      const control = await until(() => sliderOf(feature), "the slider");
       // A drag at the right end (0 dB), then the browser cancels it (its
-      // cancel event reports position 0)
-      feature._dragging = 0;
-      control.dispatchEvent(new PointerEvent("pointercancel", { clientX: 0, bubbles: true }));
+      // cancel event reports position 0). The pointer is synthetic, so the
+      // browser cannot capture it
+      control.setPointerCapture = () => {};
+      const r = control.getBoundingClientRect();
+      control.dispatchEvent(new PointerEvent("pointerdown", { clientX: r.right - 1, clientY: r.top + r.height / 2, pointerId: 7, bubbles: true }));
+      control.dispatchEvent(new PointerEvent("pointercancel", { clientX: 0, pointerId: 7, bubbles: true }));
       expectEqual(calls.map((c) => c.value), [0], "the value sent");
     });
 
@@ -432,25 +476,24 @@
       card.hass = { ...hass(), callService: () => {} };
       stage().append(card);
       const feature = await until(() => findDeep(card.shadowRoot, "svs-subwoofer-volume"), "the volume slider");
-      const control = await until(() => feature.shadowRoot.querySelector(".control[aria-valuenow]"), "the slider's value");
-      const tooltip = feature.shadowRoot.querySelector(".tooltip");
-      if (control.contains(tooltip)) throw new Error("the callout is inside the control, which clips");
+      const control = await until(() => sliderOf(feature)?.hasAttribute("aria-valuenow") && sliderOf(feature), "the slider's value");
       control.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-      await until(() => tooltip.classList.contains("visible"), "the callout to show");
-      if (!/dB$/.test(tooltip.textContent)) throw new Error(`the callout says "${tooltip.textContent}"`);
+      const tooltip = await until(() => visible(calloutOf(feature)) && calloutOf(feature), "the callout to show, outside the slider");
       const tip = tooltip.getBoundingClientRect(), slider = control.getBoundingClientRect();
       if (tip.bottom > slider.top) throw new Error("the callout is not above the slider");
       // Only the finish is clipped to the card's outline, not the tile card
-      const frame = card.shadowRoot.querySelector(".frame");
-      if (getComputedStyle(frame).overflow !== "visible") throw new Error("the card's frame clips its tile card");
-      if (getComputedStyle(card.shadowRoot.querySelector(".clip")).overflow !== "hidden") throw new Error("the finish is not clipped to the outline");
+      const clips = clippedBetween(tileOf(card), card);
+      if (clips.length) throw new Error(`the card clips its tile card (${clips.join(", ")})`);
+      const canvas = await until(() => ownCanvas(card), "the finish");
+      if (!clippedBetween(canvas, card).length) throw new Error("the finish is not clipped to the outline");
       const panel = document.createElement("svs-subwoofer-panel-card");
       panel.setConfig({ type: "custom:svs-subwoofer-panel-card", entity: first, finish: "black_ash", members: [{ entity: first }] });
       panel.hass = hass();
       stage().append(panel);
-      const box = await until(() => panel.shadowRoot.querySelector(".panel"), "the panel");
-      if (getComputedStyle(box).overflow !== "visible") throw new Error("the panel clips its rows");
-      await until(() => !tooltip.classList.contains("visible"), "the callout to hide after the key", 3000);
+      const row = await until(() => membersOf(panel)[0], "the panel's row");
+      const panelClips = clippedBetween(row, panel);
+      if (panelClips.length) throw new Error(`the panel clips its rows (${panelClips.join(", ")})`);
+      await until(() => !visible(calloutOf(feature)), "the callout to hide after the key", 3000);
     });
 
     await test("volume editor: Copy from main on a row, Copy to members on the main, never grayed out", async () => {
@@ -477,7 +520,8 @@
         });
         stage().append(editor);
         editor.setConfig(config);
-        return { editor, saved, button: editor.querySelector("ha-button") };
+        // The editor draws its button a moment after it is given its settings
+        return { editor, saved, get button() { return editor.querySelector("ha-button"); } };
       };
       const shown = (button) => getComputedStyle(button).display !== "none";
 
@@ -485,6 +529,7 @@
       const rowTile = await tileEditorIn(panel);
       await until(() => featuresEditor(rowTile), "the row's features list");
       const row = open(rowTile, 0, rowVolume);
+      await until(() => row.button && shown(row.button), "the row's Copy from main");
       if (!shown(row.button)) throw new Error("Copy from main is not shown on the row's volume");
       if (row.button.disabled) throw new Error("Copy from main is grayed out on the row's volume");
       expectEqual(row.button.textContent, "Copy from main", "the button's label");
@@ -494,11 +539,12 @@
 
       // The main subwoofer's own volume, even with the same settings: Copy to
       // members instead, which puts its settings on every row
-      const cardEditor = panel.shadowRoot.querySelector("#card svs-subwoofer-card-editor");
+      const cardEditor = await until(() => mainCardEditor(panel), "the main subwoofer's editor");
       const mainTile = await tileEditorIn(cardEditor);
       await until(() => featuresEditor(mainTile), "the main subwoofer's features list");
       const changed = { ...main, min: -45 };
       const own = open(mainTile, 0, main);
+      await until(() => own.button?.textContent === "Copy to members", "the main subwoofer's Copy to members");
       expectEqual(own.button.textContent, "Copy to members", "the main subwoofer's button");
       if (!shown(own.button) || own.button.disabled) throw new Error("Copy to members is not offered on the main subwoofer");
       own.editor.setConfig(changed);
@@ -539,7 +585,7 @@
         return {
           label,
           control: true,
-          action: control.value?.action ?? control._value?.action,
+          action: control.value?.action,
           targetSelector: !!selector,
           selectorElement: inner?.localName ?? null,
           selectorDefined: inner ? !!customElements.get(inner.localName) : null,
@@ -579,28 +625,25 @@
       el.setConfig(config);
       el.hass = fake;
       stage().append(el);
-      const card = el.localName === "svs-subwoofer-panel-card"
-        ? await until(() => el.shadowRoot.querySelector(".header svs-subwoofer-card"), "the header card") : el;
-      const tile = await until(() => card.shadowRoot.querySelector("hui-tile-card")?._config && card.shadowRoot.querySelector("hui-tile-card"), "the tile card");
-      return {
-        calls,
-        iconTap: tile._config.icon_tap_action,
-        tap: () => tile.dispatchEvent(new CustomEvent("ll-custom", { bubbles: true, composed: true, detail: tile._config.icon_tap_action })),
-      };
+      const moreInfo = [];
+      el.addEventListener("hass-more-info", (ev) => moreInfo.push(ev.detail?.entityId), true);
+      const card = el.localName === "svs-subwoofer-panel-card" ? await until(() => headerOf(el), "the header card") : el;
+      const icon = await until(() => tileOf(card)?.shadowRoot?.querySelector("ha-tile-icon"), "the driver");
+      await sleep(500);
+      return { calls, moreInfo, tap: () => realClick(icon) };
     };
     const pressed = (calls) => calls.filter((c) => c.domain === "button" && c.service === "press").flatMap((c) => [c.data.entity_id].flat()).sort();
 
     await test("connect tap: a connected subwoofer disconnects", async () => {
-      const { calls, iconTap, tap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first }, { [onDevice(first, "connected")]: true });
-      expectEqual(iconTap, { action: "fire-dom-event", svs_subwoofer: "connection" }, "the tile card's icon tap");
-      tap();
+      const { calls, tap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first }, { [onDevice(first, "connected")]: true });
+      await tap();
       await until(() => calls.length, "a button press");
       expectEqual(pressed(calls), [onDevice(first, "disconnect")], "the buttons pressed");
     });
 
     await test("connect tap: a disconnected subwoofer reconnects", async () => {
       const { calls, tap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first }, { [onDevice(first, "connected")]: false });
-      tap();
+      await tap();
       await until(() => calls.length, "a button press");
       expectEqual(pressed(calls), [onDevice(first, "reconnect")], "the buttons pressed");
     });
@@ -612,7 +655,7 @@
         { type: "custom:svs-subwoofer-panel-card", entity: group, members: [{ entity: first }, { entity: second }] },
         { [onDevice(first, "connected")]: true, [onDevice(second, "connected")]: false },
       );
-      tap();
+      await tap();
       await until(() => calls.length, "a button press");
       expectEqual(pressed(calls), [onDevice(second, "reconnect")], "the buttons pressed");
     });
@@ -624,20 +667,13 @@
         { type: "custom:svs-subwoofer-panel-card", entity: group, members: [{ entity: first }, { entity: second }] },
         { [onDevice(first, "connected")]: true, [onDevice(second, "connected")]: true },
       );
-      tap();
+      await tap();
       await until(() => calls.length, "a button press");
       expectEqual(pressed(calls), [onDevice(first, "disconnect"), onDevice(second, "disconnect")].sort(), "the buttons pressed");
     });
 
     // A real mouse click on a driver (the tile card's icon), as on a
     // dashboard: what it presses, and whether it opens more-info instead
-    const realClick = (el) => new Promise((resolve) => {
-      const r = el.getBoundingClientRect();
-      const id = Math.random().toString(36).slice(2);
-      (window.__svsClicks ??= {})[id] = resolve;
-      window.__svsClickDone ??= (done) => { window.__svsClicks[done]?.(); delete window.__svsClicks[done]; };
-      window.svsRealClick(JSON.stringify({ id, x: r.left + r.width / 2, y: r.top + r.height / 2 }));
-    });
     const clickDriver = async (config, connected, which) => {
       const calls = [];
       const states = { ...hass().states };
@@ -650,7 +686,7 @@
       const moreInfo = [];
       el.addEventListener("hass-more-info", (ev) => moreInfo.push(ev.detail?.entityId), true);
       const card = await until(() => which(el), "the card to click");
-      const icon = await until(() => card.shadowRoot.querySelector("hui-tile-card")?.shadowRoot?.querySelector("ha-tile-icon"), "the driver");
+      const icon = await until(() => tileOf(card)?.shadowRoot?.querySelector("ha-tile-icon"), "the driver");
       await sleep(500);
       await realClick(icon);
       await sleep(800);
@@ -671,7 +707,7 @@
       expectPressed(await clickDriver(
         { type: "custom:svs-subwoofer-panel-card", entity: groupVolume(), members: [{ entity: first }, { entity: second }], members_open: true },
         { [onDevice(first, "connected")]: true, [onDevice(second, "connected")]: true },
-        (el) => el.shadowRoot.querySelector(".header svs-subwoofer-card"),
+        (el) => headerOf(el),
       ), [onDevice(first, "disconnect"), onDevice(second, "disconnect")]);
     });
 
@@ -680,7 +716,7 @@
       expectPressed(await clickDriver(
         { type: "custom:svs-subwoofer-panel-card", entity: groupVolume(), members: [{ entity: first }, { entity: second }], members_open: true, members_toggle: false },
         { [onDevice(first, "connected")]: false, [onDevice(second, "connected")]: true },
-        (el) => el.shadowRoot.querySelectorAll(".members svs-subwoofer-card")[0],
+        (el) => membersOf(el)[0],
       ), [onDevice(first, "reconnect")]);
     });
 
@@ -693,17 +729,16 @@
       panel.setConfig({ ...deployedPanel(group, first, second), state_content: ["state", "preset", "standby_mode"] });
       panel.hass = fake;
       stage().append(panel);
-      const header = await until(() => panel.shadowRoot.querySelector(".header svs-subwoofer-card"), "the header card");
-      const tile = await until(() => header.shadowRoot.querySelector("hui-tile-card")?.shadowRoot && header.shadowRoot.querySelector("hui-tile-card"), "the tile card");
+      const header = await until(() => headerOf(panel), "the header card");
+      const tile = await until(() => tileOf(header)?.shadowRoot && tileOf(header), "the tile card");
       const text = () => deepText(tile.shadowRoot);
       await until(() => /-20 to -12/.test(text()), "the volume range in the state content").catch(() => { throw new Error(`the state content says: ${text()}`); });
       if (/dB dB/.test(text())) throw new Error(`the unit is shown twice: ${text()}`);
       if (!/LOW \/ HIGH/.test(text())) throw new Error(`no mixed presets in the state content: ${text()}`);
       if (!/Auto \/ On/.test(text())) throw new Error(`no mixed standby modes in the state content: ${text()}`);
-      expectEqual(header.shadowRoot.querySelector(".standby-badge")?.textContent, "M", "the standby badge");
+      expectEqual(standbyBadge(header)?.textContent, "M", "the standby badge");
       const volume = await until(() => findDeep(tile.shadowRoot, "svs-subwoofer-volume"), "the volume slider");
-      const control = await until(() => volume.shadowRoot.querySelector(".control.span"), "the slider spanning both volumes");
-      if (!volume.shadowRoot.querySelector(".loupe.span")) throw new Error("the loupe does not stretch over the span");
+      const control = await until(() => / to /.test(sliderOf(volume)?.getAttribute("aria-valuetext")) && sliderOf(volume), "the slider spanning both volumes");
       // Two steps up with the keys: each subwoofer moves by 2 dB
       control.focus();
       for (let i = 0; i < 2; i++) control.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
@@ -713,9 +748,10 @@
     });
 
     await test("connect tap: a card's own Icon tap behavior is kept", async () => {
-      const own = { action: "more-info" };
-      const { iconTap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first, icon_tap_action: own }, {});
-      expectEqual(iconTap, own, "the tile card's icon tap");
+      const { calls, moreInfo, tap } = await tapCard({ type: "custom:svs-subwoofer-card", entity: first, icon_tap_action: { action: "more-info" } }, {});
+      await tap();
+      await until(() => moreInfo.length, "more-info to open");
+      expectEqual(pressed(calls), [], "the buttons pressed");
     });
 
     await test("console: keys keep one color whether selected or not; preset keys at full strength", async () => {
@@ -867,12 +903,11 @@
     for (const n of ancestors(el).slice(1)) {
       // The card's and the panel's own boxes are below their finish: they
       // are handled with the card (its canvas, or its background)
-      if (n.matches(".frame, .panel") && n.getRootNode().host?.localName.startsWith("svs-subwoofer-")) continue;
+      if (n.parentNode instanceof ShadowRoot && n.parentNode.host.localName.startsWith("svs-subwoofer-")) continue;
       if (n.localName === "svs-subwoofer-card" || n.localName === "svs-subwoofer-panel-card") {
-        const box = n.shadowRoot.querySelector(".frame, .panel");
-        if (box.classList.contains("finished") && !box.classList.contains("through")) {
-          return samples(n.shadowRoot.querySelector("canvas"), el).map((s) => over(s, page));
-        }
+        const box = [...n.shadowRoot.children].find((c) => c.localName !== "style");
+        const canvas = ownCanvas(n);
+        if (canvas) return samples(canvas, el).map((s) => over(s, page));
         if (n.localName === "svs-subwoofer-panel-card") {
           const bg = rgba(getComputedStyle(box).backgroundColor);
           if (bg[3] > 0.99) return [bg];
@@ -954,8 +989,8 @@
         for (const feature of allDeep(card.shadowRoot, featureTypes)) {
           if (color) feature.style.setProperty("--feature-color", color);
           else feature.style.removeProperty("--feature-color");
-          feature._key = undefined;
-          feature._render?.();
+          // A new hass object, as Home Assistant sends on any change: the feature draws again
+          feature.hass = { ...hass(), callService: () => {} };
         }
       }
       await sleep(600);
@@ -965,14 +1000,19 @@
             check(button, button.textContent.trim() || button.title || button.getAttribute("aria-label") || "icon", failures, what);
             checked++;
           }
-          // The volume's value callout, shown as while a key is pressed
-          const control = feature.shadowRoot.querySelector(".control[role=slider]");
-          const tooltip = feature.shadowRoot.querySelector(".tooltip");
-          if (control && tooltip) {
-            tooltip.classList.add("visible");
-            check(tooltip, tooltip.textContent, failures, `${what} (value callout)`);
-            tooltip.classList.remove("visible");
-            checked++;
+          // The volume's value callout, shown while a key is pressed (the
+          // cards here send nothing to Home Assistant)
+          const control = sliderOf(feature);
+          if (control) {
+            control.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+            const tooltip = await until(() => visible(calloutOf(feature)) && calloutOf(feature), "the callout", 2000).catch(() => null);
+            if (tooltip) {
+              check(tooltip, tooltip.textContent, failures, `${what} (value callout)`);
+              checked++;
+            } else {
+              failures.push(`${what}: the value callout does not show`);
+            }
+            control.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }));
           }
         }
       }
@@ -1060,7 +1100,7 @@
       const r = el.getBoundingClientRect();
       return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: Math.ceil(r.width), height: Math.ceil(r.height) };
     };
-    const cards = [...box.children].map((el, i) => ({ name: el._config?.name ?? `${i + 1} ${el.localName}`, ...place(el) }));
+    const cards = [...box.children].map((el, i) => ({ name: shownName(el) || `${i + 1} ${el.localName}`, ...place(el) }));
     return { ...place(box), cards };
   };
 })();
