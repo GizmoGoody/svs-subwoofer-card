@@ -18,7 +18,10 @@
  * Every corner, color and size comes from the theme's variables.
  */
 
-const VERSION = "1.0.0";
+import { printBadge } from "@gizmogoody/card-badge";
+
+// Set from package.json when the card is built
+const VERSION = __CARD_VERSION__;
 const DOMAIN = "svs_subwoofer";
 const CARD_TYPE = "svs-subwoofer-card";
 const EDITOR_TYPE = "svs-subwoofer-card-editor";
@@ -3065,5 +3068,11 @@ if (!customElements.get(CARD_TYPE)) {
     preview: true,
     documentationURL: "https://github.com/GizmoGoody/svs-subwoofer-card#svs-subwoofer-panel-card",
   });
-  console.info(`%c SVS SUBWOOFER CARD %c ${VERSION} `, "color: #fff; background: #555; font-weight: bold", "color: #fff; background: #c8102e");
+  printBadge({
+    icon: "🔊",
+    name: "SVS Subwoofer Card",
+    version: VERSION,
+    description: "Controls an SVS subwoofer's volume, presets, and standby mode.",
+    repo: "svs-subwoofer-card",
+  });
 }

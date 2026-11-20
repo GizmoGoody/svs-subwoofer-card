@@ -5,17 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
-jobs:
-  hacs:
-    name: HACS validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: hacs/action@main
-        with:
-          category: plugin
-          # Topics, description and issues are repository settings, not code
-          ignore: brands topics
+# HACS validation needs a release with the built card attached, so it runs
+# in release.yml
 
+jobs:
   ui:
     # Home Assistant's real frontend with the integration's fake subwoofers:
     # the tests run inside a checkout of the integration, at a pinned release,
@@ -48,6 +41,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: card/package-lock.json
+      - name: Build the card
+        working-directory: card
+        run: |
+          npm ci
+          npm run build
       - name: Install test dependencies
         working-directory: integration
         run: |
@@ -62,7 +62,7 @@ jobs:
       - name: Run the card UI tests
         working-directory: integration
         env:
-          SVS_CARD: ${{ github.workspace }}/card/svs-subwoofer-card.js
+          SVS_CARD: ${{ github.workspace }}/card/dist/svs-subwoofer-card.js
           SVS_BASELINE: ${{ github.workspace }}/original-card.js
           SVS_UI_OUT: ${{ github.workspace }}/ui-results
         run: pytest tests/test_card_ui.py -q -rs -s

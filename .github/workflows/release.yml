@@ -1,0 +1,42 @@
+name: Release
+
+# Each published release gets the built card attached (the Marketplace
+# installs it from there), then the repository is checked as HACS would
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  attach:
+    name: Attach the built card
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Attach the built card to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/svs-subwoofer-card.js --clobber
+
+  hacs:
+    name: HACS validation
+    needs: attach
+    if: always() && needs.attach.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: plugin
+          # Topics, description and issues are repository settings, not code
+          ignore: brands topics

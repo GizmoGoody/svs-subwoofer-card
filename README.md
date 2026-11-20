@@ -121,6 +121,8 @@ lovelace:
 
 ## Development
 
+The card's source is `src/svs-subwoofer-card.js`. Rollup bundles it with the shared [console badge](https://github.com/GizmoGoody/card-badge) into `dist/svs-subwoofer-card.js` (`npm ci`, then `npm run build`). Each GitHub release gets the built file attached, and the Marketplace installs it from there.
+
 The card is tested in Home Assistant's real frontend, with the integration's fake subwoofers (two subwoofers and a group of both), on GitHub for every push. `tests/ui/` holds the tests: the workflow checks out the integration at a pinned release, copies the tests into its `tests` folder, and runs them in headless Chrome. Screenshots of every finish, in the light and the dark scheme, are kept with each run.
 
 ## License
