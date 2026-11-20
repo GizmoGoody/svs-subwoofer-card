@@ -1,5 +1,5 @@
-# Checks every push and pull request: the build, and both test suites on
-# the built card and on the card before the TypeScript rewrite
+# Checks every push and pull request: typecheck, unit tests, the build, and
+# both test suites on the built card and on the card before the TypeScript rewrite
 # (reference/prototype.js). The alpha workflow runs it too, before it
 # publishes (pushes to main run it there, not here).
 #
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   test:
-    name: Build and browser tests
+    name: Build, unit and browser tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -31,6 +31,12 @@ jobs:
       # The versions in the lockfile, exactly
       - name: Install
         run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
 
       - name: Build
         run: npm run build

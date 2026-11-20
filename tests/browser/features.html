@@ -116,18 +116,17 @@
     check("S-2 readable", getComputedStyle(pressedOf(first)).color === "rgba(0, 0, 0, 0.85)", `dark on the light blue (${getComputedStyle(pressedOf(first)).color})`);
 
     // V-1: the slider's range: the whole -60 to 0 dB, or Slider from and Slider to
-    const range = (config) => {
-      const el = sliderOf(addFeature({ type: "custom:svs-subwoofer-volume", ...config }));
-      return `${el.getAttribute("aria-valuemin")}..${el.getAttribute("aria-valuemax")}`;
-    };
-    await wait(10);
-    check("V-1 range", range({}) === "-60..0" && range({ min: -30, max: -5 }) === "-30..-5" && range({ min: -5, max: -30 }) === "-30..-5" && range({ min: -20, max: -20 }) === "-60..0",
-      "the full range, From and To, swapped ends, equal ends");
+    const ranges = [{}, { min: -30, max: -5 }, { min: -5, max: -30 }, { min: -20, max: -20 }].map((config) => addFeature({ type: "custom:svs-subwoofer-volume", ...config }));
+    await settle();
+    const range = (feature) => `${sliderOf(feature).getAttribute("aria-valuemin")}..${sliderOf(feature).getAttribute("aria-valuemax")}`;
+    check("V-1 range", JSON.stringify(ranges.map(range)) === JSON.stringify(["-60..0", "-30..-5", "-30..-5", "-60..0"]),
+      `the full range, From and To, swapped ends, equal ends (${ranges.map(range).join(", ")})`);
 
     // V-2: thresholds: three ranges shown faintly; the filled part in the color of the range it ends in
-    const loudSlider = sliderOf(addFeature({ type: "custom:svs-subwoofer-volume", volume_thresholds: THRESHOLDS }));
-    const quietSlider = sliderOf(addFeature({ type: "custom:svs-subwoofer-volume", volume_thresholds: THRESHOLDS }, { hass: makeHass({ [BOTH]: "-40" }) }));
+    const loud = addFeature({ type: "custom:svs-subwoofer-volume", volume_thresholds: THRESHOLDS });
+    const quiet = addFeature({ type: "custom:svs-subwoofer-volume", volume_thresholds: THRESHOLDS }, { hass: makeHass({ [BOTH]: "-40" }) });
     await wait(50);
+    const loudSlider = sliderOf(loud), quietSlider = sliderOf(quiet);
     const loudColors = colorsIn(loudSlider), quietColors = colorsIn(quietSlider);
     check("V-2 thresholds", loudColors[rgb("#4caf50")] === 1 && loudColors[rgb("#ffeb3b")] === 1 && loudColors[rgb("#f44336")] === 2,
       `at -12 dB, the fill is red (${JSON.stringify(loudColors)})`);
@@ -142,6 +141,7 @@
     check("V-3 drag", JSON.stringify(dragHass.calls) === JSON.stringify([{ domain: "number", service: "set_value", data: { entity_id: BOTH, value: -15 } }]),
       JSON.stringify(dragHass.calls));
     volume.hass = changed(dragHass, {});
+    await settle();
     check("V-3 drag", slider.getAttribute("aria-valuenow") === "-15", `no jump back while the command runs (${slider.getAttribute("aria-valuenow")})`);
 
     // V-4: a cancelled drag ends where it was, not at the left end

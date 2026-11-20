@@ -24,7 +24,7 @@
   const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
   /** A feature's editor, as Home Assistant opens it: hass, the context and its configuration. */
-  function featureEditor(tag, config, entityId = BOTH) {
+  async function featureEditor(tag, config, entityId = BOTH) {
     const editor = customElements.get(tag).getConfigElement();
     editor.sent = [];
     editor.addEventListener("config-changed", (ev) => editor.sent.push(ev.detail.config));
@@ -32,6 +32,7 @@
     editor.context = { entity_id: entityId };
     editor.setConfig(config);
     document.getElementById("cards").append(editor);
+    await settle();
     return editor;
   }
 
@@ -90,6 +91,7 @@
     check("E-5 finish", last(editor).finish === "black_ash" && last(editor).pattern === 4242 && last(editor).finish_extent === "card" && last(editor).features_style === "match",
       JSON.stringify(last(editor)));
     editor.setConfig(last(editor));
+    await settle();
     const finished = formWith(editor, "bluetooth");
     check("E-5 finish", sameJson(finished.fields, ["finish_extent", "features_style", "bluetooth", "driver_ring", "standby_badge", "vibration"]), finished.fields.join(", "));
     check("E-5 finish", sameJson(optionLabels(finished.field("features_style")), ["Match style", "Flat", "Console"]) && sameJson(optionLabels(finished.field("finish_extent")), ["Card", "Container"]),
@@ -104,10 +106,12 @@
     editor.setConfig(last(editor));
     finishForm.edit({ finish: "fabric" });
     editor.setConfig(last(editor));
+    await settle();
     check("E-5 randomize", textOf(randomize) === "Randomize reflections", textOf(randomize));
     finishForm.edit({ finish: "none" });
     check("E-5 none", !("pattern" in last(editor)) && !("finish_extent" in last(editor)) && !("features_style" in last(editor)), JSON.stringify(last(editor)));
     editor.setConfig(last(editor));
+    await settle();
     check("E-5 none", !randomize.checkVisibility(), "no Randomize without a finish");
 
     // The panel's editor
@@ -138,6 +142,7 @@
       && rowsForm.helper("members_toggle") === "While this is on, a tap on the card does this instead of its Tap behavior (under Interactions). Icon tap behavior still works."
       && rowsForm.label("members_open") === "Show the member subwoofers at load", "labels and helper");
     rowsForm.edit({ members_toggle: false });
+    await settle();
     check("PE-6 rows", last(panel).members_toggle === false && !rowsForm.fields.includes("members_open"), `Show at load only with the tap (${rowsForm.fields.join(", ")})`);
     panel.setConfig(last(panel));
     rowsForm.edit({ members_toggle: true });
@@ -153,7 +158,7 @@
 
     // FE-3: the main volume's settings can be copied to the members; a member's from the main; never grayed out
     const mainVolume = main.openFeature(1);
-    const toMembers = featureEditor("svs-subwoofer-volume", mainVolume);
+    const toMembers = await featureEditor("svs-subwoofer-volume", mainVolume);
     const copyTo = buttonNamed(toMembers, "Copy to members");
     check("FE-3 copy", !!copyTo && !copyTo.hasAttribute("disabled") && copyTo.checkVisibility(), "Copy to members on the main subwoofer's volume");
     copyTo.click();
@@ -163,7 +168,7 @@
     const memberNow = tileEditorsOf(panel).find((t) => t.config.entity !== BOTH);
     panel.setConfig({ ...last(panel), features: [{ type: "custom:svs-subwoofer-volume", min: -40 }] });
     const rowVolume = memberNow.openFeature(0);
-    const fromMain = featureEditor("svs-subwoofer-volume", rowVolume, LEFT);
+    const fromMain = await featureEditor("svs-subwoofer-volume", rowVolume, LEFT);
     const copyFrom = buttonNamed(fromMain, "Copy from main");
     check("FE-3 copy", !!copyFrom && !copyFrom.hasAttribute("disabled") && copyFrom.checkVisibility(), "Copy from main on a member's volume");
     copyFrom.click();
@@ -197,7 +202,7 @@
       JSON.stringify(last(empty).members));
 
     // FE-1: the presets' settings
-    const presets = featureEditor("svs-subwoofer-presets", { type: "custom:svs-subwoofer-presets" });
+    const presets = await featureEditor("svs-subwoofer-presets", { type: "custom:svs-subwoofer-presets" });
     const pForm = presets.querySelector("ha-form");
     const shown = pForm.field("presets_shown");
     check("FE-1 presets", sameJson(shown.selector.select.options, ["LOW", "MEDIUM", "HIGH", "Default"]) && shown.selector.select.multiple && shown.selector.select.reorder
@@ -210,25 +215,30 @@
     check("FE-1 presets", sameJson(last(presets).presets_shown, ["HIGH", "LOW"]), `reordered presets keep their order (${JSON.stringify(last(presets))})`);
 
     // FE-2: the volume's settings
-    const volume = featureEditor("svs-subwoofer-volume", { type: "custom:svs-subwoofer-volume" });
+    const volume = await featureEditor("svs-subwoofer-volume", { type: "custom:svs-subwoofer-volume" });
     const vForm = volume.querySelector("ha-form");
     const note = () => textOf(volume.querySelector('[role="status"]'));
     check("FE-2 volume", sameJson(vForm.fields, ["min", "max", "colored"]) && vForm.label("min") === "Slider from" && vForm.label("max") === "Slider to"
       && vForm.label("colored") === "Volume thresholds" && vForm.helper("colored") === "Split the slider into three volume ranges, each with its own color.", vForm.fields.join(", "));
     check("FE-4 copy only in the panel", !buttonNamed(volume, "Copy to members")?.checkVisibility() && !buttonNamed(volume, "Copy from main")?.checkVisibility(), "no copy outside the panel");
     vForm.edit({ colored: true });
+    await settle();
     check("FE-2 thresholds", sameJson(last(volume).volume_thresholds, [{ below: -30, color: "green" }, { below: -15, color: "yellow" }, { color: "red" }]),
       JSON.stringify(last(volume)));
     check("FE-2 thresholds", ["Quietest color", "Up to (dB)", "Middle color", "Loudest color"].every((l) => vForm.fields.some((n) => vForm.label(n) === l)), vForm.fields.map((n) => vForm.label(n)).join(", "));
     vForm.edit({ split_1: -10, split_2: -40 });
+    await settle();
     check("FE-2 thresholds", sameJson(last(volume).volume_thresholds, [{ below: -40, color: "red" }, { below: -10, color: "yellow" }, { color: "green" }])
       && note() === "The two threshold volumes were the other way round, so they were swapped, and the quietest and loudest colors moved with them.", `${JSON.stringify(last(volume).volume_thresholds)}; ${note()}`);
     vForm.edit({ colored: false, min: -10, max: -40 });
+    await settle();
     check("FE-2 range", last(volume).min === -40 && last(volume).max === -10 && note() === "Slider from and Slider to were the other way round, so they were swapped.",
       `${JSON.stringify(last(volume))}; ${note()}`);
     volume.setConfig(last(volume));
+    await settle();
     vForm.edit({ min: undefined });
     volume.setConfig(last(volume));
+    await settle();
     check("FE-2 empty", vForm.data.min === undefined && last(volume).min === -40, `an emptied field stays empty while typing (${vForm.data.min}, saved ${last(volume).min})`);
   });
 </script>

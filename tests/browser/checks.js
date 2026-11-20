@@ -44,6 +44,9 @@ window.check = (title, ok, message) => {
   else problems.push(`${title}: ${message}`);
 };
 window.wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// After an action: the card's elements draw a moment later (Lit renders in a
+// microtask, as Home Assistant's own elements do)
+window.settle = () => wait(0);
 
 /** Wait until test() is true (up to ms), and return whether it became true. */
 window.until = async (test, ms = 2000) => {

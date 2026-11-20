@@ -4,4 +4,5 @@ const bundle = new URLSearchParams(location.search).get("bundle") || "../../dist
 // The prototype (the card before the rewrite): checks of changes made in the
 // rewrite are reported as known differences there, not failures
 window.PROTOTYPE = /prototype\.js$/.test(bundle);
-document.write(`<script src="${bundle}"><\/script>`);
+// As Home Assistant loads it: a module, so its names stay its own
+document.write(`<script type="module" src="${bundle}"><\/script>`);
