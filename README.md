@@ -115,7 +115,7 @@ members_open: false       # the member subwoofers are hidden when the dashboard 
 ```yaml
 lovelace:
   resources:
-    - url: /hacsfiles/svs-subwoofer-card/svs-subwoofer-card.js
+    - url: /local/community/svs-subwoofer-card/svs-subwoofer-card.js
       type: module
 ```
 
