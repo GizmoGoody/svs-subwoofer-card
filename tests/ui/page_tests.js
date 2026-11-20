@@ -335,6 +335,10 @@
       if (!cardAbove) throw new Error("the main subwoofer's tile card options are not at the top");
       if (!(cardAbove.compareDocumentPosition(svsSection) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error("the tile card options are not before the SVS Subwoofer section");
       if (cardAbove.shadowRoot.querySelector("ha-expansion-panel")?.style.display !== "none") throw new Error("the main subwoofer's options show the style options too");
+      // The main entity picker says to choose the group subwoofer
+      const mainTile = await until(() => [...cardAbove.shadowRoot.querySelectorAll("*")].find((n) => n.localName.endsWith("tile-card-editor")), "the main tile card options");
+      expectEqual(mainTile._computeHelperCallback({ name: "entity" }), "With Member subwoofers, choose their group subwoofer.", "the main entity helper");
+      expectEqual(mainTile._computeHelperCallback({ name: "features_position" }), undefined, "the other helpers");
       const style = await until(() => svsSection.querySelector("svs-subwoofer-card-editor"), "the card's style options");
       await until(() => style.shadowRoot.querySelector("#finish")?.schema?.length, "the Finish field");
       if ([...style.shadowRoot.querySelectorAll("*")].some((n) => n.localName.endsWith("tile-card-editor"))) throw new Error("the SVS Subwoofer section shows the tile card's options");

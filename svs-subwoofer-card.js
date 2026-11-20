@@ -2421,6 +2421,13 @@ function tileEditorType() {
   customElements.define(TILE_EDITOR_TYPE, class extends Base {
     constructor() {
       super();
+      // A helper under the entity picker (svsEntityHelper), as Home
+      // Assistant's editors show one under a field
+      const helper = this._computeHelperCallback;
+      if (typeof helper === "function") {
+        this._computeHelperCallback = (schema) =>
+          (schema.name === "entity" && this.svsEntityHelper) || helper.call(this, schema);
+      }
       const original = this._schema;
       if (typeof original !== "function") return;
       let lastIn, lastKey, lastOut;
@@ -2510,6 +2517,12 @@ class SvsCardEditor extends HTMLElement {
     if (part === "tile" && panel) panel.style.display = "none";
   }
 
+  /** A helper under the entity picker of the tile card's options. */
+  set entityHelper(text) {
+    this._entityHelper = text;
+    if (this._tileEditor) this._tileEditor.svsEntityHelper = text;
+  }
+
   set hass(hass) {
     this._hass = hass;
     this._finishForm.hass = hass;
@@ -2557,6 +2570,7 @@ class SvsCardEditor extends HTMLElement {
           this._fire();
         });
         editor.svsEntities = svsVolumes(this._hass);
+        editor.svsEntityHelper = this._entityHelper;
         if (this._lovelace) editor.lovelace = this._lovelace;
         this.shadowRoot.getElementById("tile").replaceWith(editor);
         this._tileEditor = editor;
@@ -2778,6 +2792,7 @@ class SvsPanelCardEditor extends HTMLElement {
       this._styleEditor.part = "style";
       this._cardEditor = document.createElement(EDITOR_TYPE);
       this._cardEditor.part = "tile";
+      this._cardEditor.entityHelper = "With Member subwoofers, choose their group subwoofer.";
       // The main subwoofer's volume settings can be copied to every row
       this._cardEditor.addEventListener("edit-sub-element", (ev) => {
         const feature = ev.detail?.config;
