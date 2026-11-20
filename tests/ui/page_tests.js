@@ -226,6 +226,13 @@
       // The header's badge shows the two subwoofers together
       const badge = await until(() => header.shadowRoot.querySelector(".badge.on"), "the header's Bluetooth badge");
       if (!/connected/i.test(badge.title)) throw new Error(`the badge says "${badge.title}"`);
+      // Inline: the first feature sits in the right half of the first row, the next below
+      const tileRoot = header.shadowRoot.querySelector("hui-tile-card").shadowRoot;
+      const inline = await until(() => tileRoot.querySelector('hui-card-features[slot="features-inline"]'), "the inline first feature");
+      const below = await until(() => tileRoot.querySelector('hui-card-features[slot="features"]'), "the features below");
+      const box = header.getBoundingClientRect(), a = inline.getBoundingClientRect(), b = below.getBoundingClientRect();
+      if (a.left < box.left + box.width / 2 - 24) throw new Error(`the first feature starts at ${Math.round(a.left - box.left)} of ${Math.round(box.width)} px`);
+      if (b.top < a.bottom) throw new Error("the second feature is not below the first row");
       const rows = await until(() => {
         const cards = root.querySelectorAll(".members svs-subwoofer-card");
         return cards.length === 2 && cards;
