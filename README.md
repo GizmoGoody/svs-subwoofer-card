@@ -11,13 +11,13 @@ The card needs the SVS Subwoofer integration, version 1.10.0 or later (the versi
 Home Assistant 2026.11 and later include the Marketplace, which replaces HACS. The card needs a Home Assistant version with the Marketplace, or HACS on an older one.
 
 1. Go to **Settings** → **Marketplace**. On the first visit, select **I understand the risks and agree**.
-2. In the upper-right corner, select **Add from link**, enter `GizmoGoody/svs-subwoofer-card` under **GitHub link**, and select **Add**. If asked for the type, choose the dashboard type.
-3. Open **SVS Subwoofer card** and select **Install**, then **Install** again in the dialog.
+2. Search for **SVS Subwoofer card**.
+3. Open it and select **Install**, then **Install** again in the dialog.
 4. Reload the browser page (in the Companion app, pull down to refresh).
 
-The Marketplace adds the card to **Settings** → **Dashboards** → **Resources** for you.
+The Marketplace adds the card to **Settings** → **Dashboards** → **Resources** for you. Installing from the catalog does not need a GitHub connection.
 
-Adding a repository from a link needs a connection to GitHub, which the Marketplace asks for the first time. With HACS on an older Home Assistant, use ⋮ → **Custom repositories**, add the same address with the type **Dashboard**, then select **Download**.
+With HACS on an older Home Assistant, open **HACS**, search for **SVS Subwoofer card**, open it, and select **Download**.
 
 If you used the card that was built into the fork of the integration, remove its old resource at `/svs_subwoofer/svs-subwoofer-card.js` from **Settings** → **Dashboards** → **Resources** once you have installed this one.
 
