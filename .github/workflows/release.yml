@@ -38,5 +38,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: plugin
-          # Topics, description and issues are repository settings, not code
-          ignore: brands topics
