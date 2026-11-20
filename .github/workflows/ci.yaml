@@ -1,7 +1,6 @@
 # Checks every push and pull request: typecheck, unit tests, the build, and
 # both test suites on the built card and on the card before the TypeScript rewrite
-# (reference/prototype.js). The alpha workflow runs it too, before it
-# publishes (pushes to main run it there, not here).
+# (reference/prototype.js).
 #
 # HACS validation needs a release with the built card attached, so it runs
 # in release.yml
@@ -9,9 +8,7 @@ name: CI
 
 on:
   push:
-    branches-ignore: [main]
   pull_request:
-  workflow_call:
   workflow_dispatch:
 
 permissions:
