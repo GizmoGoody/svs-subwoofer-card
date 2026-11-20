@@ -987,7 +987,7 @@
           if (color) feature.style.setProperty("--feature-color", color);
           else feature.style.removeProperty("--feature-color");
           // A new hass object, as Home Assistant sends on any change: the feature draws again
-          feature.hass = { ...feature.hass, callService: () => {} };
+          feature.hass = { ...hass(), callService: () => {} };
         }
       }
       await sleep(600);
