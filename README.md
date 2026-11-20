@@ -35,7 +35,7 @@ All three take their height, corners, and colors from your theme.
 
 ## SVS Subwoofer card
 
-Edit a dashboard, select **Add card**, and search for **SVS Subwoofer**. The card is Home Assistant's tile card: every tile card option works the same way and appears in the same editor. Choose the subwoofer's or group's **Volume** entity, so the driver's size follows it. **State content** can also show the subwoofer's **Preset** and **Standby mode** next to the volume. Below the tile card's options, the **SVS style** panel adds:
+Edit a dashboard, select **Add card**, and search for **SVS Subwoofer**. The card is Home Assistant's tile card: every tile card option works the same way and appears in the same editor. Choose the subwoofer's or group's **Volume** entity, so the driver's size follows it. **State content** can also show the subwoofer's **Preset** and **Standby mode** next to the volume. Below the tile card's options, the **SVS Subwoofer** section adds:
 
 - **Finish**: None (your theme's own card), Premium Black Ash, Black Oak Real Wood Veneer, Piano Gloss Black, Piano Gloss White, Fabric (a dark speaker cloth), or Grille (a perforated metal speaker grille).
 - **Randomize** draws a new grain (the wood finishes) or new reflections (the gloss finishes, Fabric, and Grille).
@@ -45,8 +45,9 @@ Edit a dashboard, select **Add card**, and search for **SVS Subwoofer**. The car
   - **Flat**: each control sits on a patch of the finish's base color, without grain or reflections.
   - **Console**: each control sits in a channel pressed into the panel. The preset and standby buttons are keys that press in (the active one stays pressed), and Home Assistant's own toggles become a slide.
 - **Bluetooth badge**: the connection, shown on the driver (the default), only when the subwoofer is not connected, or hidden. On a group in the panel card, it shows the group's subwoofers together: all, some, or none connected.
+- **Tap to connect**: a tap on the driver disconnects a connected subwoofer and reconnects one that is not connected. On a group in the panel card, it disconnects every member subwoofer when all are connected, and otherwise reconnects those that are not. Set **Icon tap behavior** (under Interactions) to use the tap for something else.
 - **Driver ring**: a ring around the driver in the active preset's color, or the volume threshold's color.
-- **Standby mode badge**: a letter on the driver for the standby mode: A (Auto), O (On), or T (Trigger).
+- **Standby mode badge**: a letter on the driver for the standby mode: A (Auto), O (On), or T (Trigger). On a group in the panel card whose subwoofers' modes differ, M (Mixed).
 - **Shake when the volume or preset changes**: the driver shakes while the volume slider moves and briefly when a preset loads, harder at a higher volume. It stays still for anyone who has reduced motion turned on.
 
 In place of the tile card's icon, the card shows a subwoofer driver. Its size follows the volume.
@@ -80,7 +81,11 @@ features_position: inline
 
 ## SVS Subwoofer panel card
 
-The panel card (a prototype) is the SVS Subwoofer card for a subwoofer or group, with a row for each chosen subwoofer below it, on one surface: the finish covers the whole panel. Search for **SVS Subwoofer panel** when adding a card. Each row is an SVS Subwoofer card of its own, with its own name, state content and features.
+The panel card (a prototype) is the SVS Subwoofer card for a subwoofer or group, with its **Member subwoofers** below it, on one surface: the finish covers the whole panel. Search for **SVS Subwoofer panel** when adding a card. Each member subwoofer is an SVS Subwoofer card of its own, with its own name, state content and features.
+
+The editor shows the main subwoofer's tile card options first, then the **SVS Subwoofer** section, then the **Member subwoofers** section, one numbered tab each. With member subwoofers, set the main card's entity to their group subwoofer.
+
+When the card is for a group and its subwoofers disagree, the group itself reports Unknown, so the card shows its member subwoofers instead: the state content shows the range of their volumes (for example -20 to -12 dB) and their presets and standby modes (LOW / HIGH), and the standby badge shows M. The volume slider spans their volumes, and dragging it moves every subwoofer by the same amount, so the differences between them stay as they were.
 
 ```yaml
 type: custom:svs-subwoofer-panel-card
@@ -95,8 +100,8 @@ members:
     features:
       - type: custom:svs-subwoofer-volume
     features_position: inline
-members_toggle: true      # a tap on the card shows or hides the rows
-members_open: false       # the rows are hidden when the dashboard loads
+members_toggle: true      # a tap on the card shows or hides the member subwoofers
+members_open: false       # the member subwoofers are hidden when the dashboard loads
 ```
 
 ## Troubleshooting
@@ -113,6 +118,10 @@ lovelace:
     - url: /hacsfiles/svs-subwoofer-card/svs-subwoofer-card.js
       type: module
 ```
+
+## Development
+
+The card is tested in Home Assistant's real frontend, with the integration's fake subwoofers (two subwoofers and a group of both), on GitHub for every push. `tests/ui/` holds the tests: the workflow checks out the integration at a pinned release, copies the tests into its `tests` folder, and runs them in headless Chrome. Screenshots of every finish, in the light and the dark scheme, are kept with each run.
 
 ## License
 
