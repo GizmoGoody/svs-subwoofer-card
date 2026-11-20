@@ -328,7 +328,7 @@
       // untouched, then the SVS Subwoofer section, then the rows' section
       const top = [...el.shadowRoot.children];
       const sections = top.filter((n) => n.localName === "ha-expansion-panel");
-      expectEqual(sections.map((p) => p.querySelector('[slot="header"]')?.textContent), ["SVS Subwoofer", "Subwoofers in the collapsible section"], "the sections");
+      expectEqual(sections.map((p) => p.querySelector('[slot="header"]')?.textContent), ["SVS Subwoofer", "Member subwoofers"], "the sections");
       if (!sections.every((p) => p.expanded)) throw new Error("a section starts collapsed");
       const [svsSection, rowsSection] = sections;
       const cardAbove = await until(() => el.shadowRoot.getElementById("card")?.querySelector("svs-subwoofer-card-editor"), "the main subwoofer's editor");

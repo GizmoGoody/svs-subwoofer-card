@@ -45,7 +45,7 @@ Edit a dashboard, select **Add card**, and search for **SVS Subwoofer**. The car
   - **Flat**: each control sits on a patch of the finish's base color, without grain or reflections.
   - **Console**: each control sits in a channel pressed into the panel. The preset and standby buttons are keys that press in (the active one stays pressed), and Home Assistant's own toggles become a slide.
 - **Bluetooth badge**: the connection, shown on the driver (the default), only when the subwoofer is not connected, or hidden. On a group in the panel card, it shows the group's subwoofers together: all, some, or none connected.
-- **Tap to connect**: a tap on the driver disconnects a connected subwoofer and reconnects one that is not connected. On a group in the panel card, it disconnects every subwoofer in its rows when all are connected, and otherwise reconnects those that are not. Set **Icon tap behavior** (under Interactions) to use the tap for something else.
+- **Tap to connect**: a tap on the driver disconnects a connected subwoofer and reconnects one that is not connected. On a group in the panel card, it disconnects every member subwoofer when all are connected, and otherwise reconnects those that are not. Set **Icon tap behavior** (under Interactions) to use the tap for something else.
 - **Driver ring**: a ring around the driver in the active preset's color, or the volume threshold's color.
 - **Standby mode badge**: a letter on the driver for the standby mode: A (Auto), O (On), or T (Trigger). On a group in the panel card whose subwoofers' modes differ, M (Mixed).
 - **Shake when the volume or preset changes**: the driver shakes while the volume slider moves and briefly when a preset loads, harder at a higher volume. It stays still for anyone who has reduced motion turned on.
@@ -81,11 +81,11 @@ features_position: inline
 
 ## SVS Subwoofer panel card
 
-The panel card (a prototype) is the SVS Subwoofer card for a subwoofer or group, with a row for each chosen subwoofer below it, on one surface: the finish covers the whole panel. Search for **SVS Subwoofer panel** when adding a card. Each row is an SVS Subwoofer card of its own, with its own name, state content and features.
+The panel card (a prototype) is the SVS Subwoofer card for a subwoofer or group, with its **Member subwoofers** below it, on one surface: the finish covers the whole panel. Search for **SVS Subwoofer panel** when adding a card. Each member subwoofer is an SVS Subwoofer card of its own, with its own name, state content and features.
 
-The editor shows the main subwoofer's tile card options first, then the **SVS Subwoofer** section, then the subwoofers in the collapsible section, one numbered tab each.
+The editor shows the main subwoofer's tile card options first, then the **SVS Subwoofer** section, then the **Member subwoofers** section, one numbered tab each. With member subwoofers, set the main card's entity to their group subwoofer.
 
-When the card is for a group and its subwoofers disagree, the group itself reports Unknown, so the card shows its rows' subwoofers instead: the state content shows the range of their volumes (for example -20 to -12 dB) and their presets and standby modes (LOW / HIGH), and the standby badge shows M. The volume slider spans their volumes, and dragging it moves every subwoofer by the same amount, so the differences between them stay as they were.
+When the card is for a group and its subwoofers disagree, the group itself reports Unknown, so the card shows its member subwoofers instead: the state content shows the range of their volumes (for example -20 to -12 dB) and their presets and standby modes (LOW / HIGH), and the standby badge shows M. The volume slider spans their volumes, and dragging it moves every subwoofer by the same amount, so the differences between them stay as they were.
 
 ```yaml
 type: custom:svs-subwoofer-panel-card
@@ -100,8 +100,8 @@ members:
     features:
       - type: custom:svs-subwoofer-volume
     features_position: inline
-members_toggle: true      # a tap on the card shows or hides the rows
-members_open: false       # the rows are hidden when the dashboard loads
+members_toggle: true      # a tap on the card shows or hides the member subwoofers
+members_open: false       # the member subwoofers are hidden when the dashboard loads
 ```
 
 ## Troubleshooting

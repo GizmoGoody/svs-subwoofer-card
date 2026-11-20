@@ -976,7 +976,7 @@ class SvsVolumeEditor extends HTMLElement {
     // The main subwoofer's range and thresholds go to every row
     if (this._panel?.copyTo) {
       this._panel.copyTo(JSON.parse(JSON.stringify(this._config)));
-      this._note.textContent = "Copied to every subwoofer in the collapsible section.";
+      this._note.textContent = "Copied to every member subwoofer.";
       return;
     }
     // The main subwoofer's range and thresholds replace this row's
@@ -2586,7 +2586,7 @@ class SvsCardEditor extends HTMLElement {
       }]),
       {
         name: "bluetooth", label: "Bluetooth badge",
-        helper: "A tap on the driver connects or disconnects, unless Icon tap behavior (under Interactions) is set to something else. On a group subwoofer in the panel card, the badge and the tap cover the subwoofers in its rows.",
+        helper: "A tap on the driver connects or disconnects, unless Icon tap behavior (under Interactions) is set to something else. On a group subwoofer in the panel card, the badge and the tap cover its member subwoofers.",
         selector: { select: { mode: "dropdown", options: BLUETOOTH.map(([value, label]) => ({ value, label })) } },
       },
       {
@@ -2681,12 +2681,12 @@ class SvsPanelCardEditor extends HTMLElement {
         <div id="style"></div>
       </ha-expansion-panel>
       <ha-expansion-panel outlined expanded id="members">
-        <div slot="header" role="heading" aria-level="3">Subwoofers in the collapsible section</div>
+        <div slot="header" role="heading" aria-level="3">Member subwoofers</div>
         <div class="content">
-          <p class="hint">Recommended: the group's member subwoofers, so each one can also be adjusted on its own. Each numbered tab is one subwoofer; the plus button adds one.</p>
+          <p class="hint">Recommended: the subwoofers in the main subwoofer's group, so each one can also be adjusted on its own. Each numbered tab is one member subwoofer; the plus button adds one.</p>
           <div id="rows"></div>
           <div class="toolbar">
-            <div class="tabs" role="tablist" aria-label="Subwoofers in the collapsible section"></div>
+            <div class="tabs" role="tablist" aria-label="Member subwoofers"></div>
             <ha-icon-button id="add"></ha-icon-button>
           </div>
           <div id="body"></div>
@@ -2771,8 +2771,7 @@ class SvsPanelCardEditor extends HTMLElement {
 
   // As on the SVS Subwoofer card's own editor: first the main subwoofer's
   // tile card options, untouched, then the SVS Subwoofer section with the
-  // card's own options, then the subwoofers in the collapsible section and
-  // how it opens.
+  // card's own options, then the member subwoofers and how they show.
   _showCard() {
     if (!this._cardEditor) {
       this._styleEditor = document.createElement(EDITOR_TYPE);
@@ -2841,12 +2840,12 @@ class SvsPanelCardEditor extends HTMLElement {
     this._rowsForm.hass = this._hass;
     this._rowsForm.schema = [
       {
-        name: "members_toggle", label: "Tap the card to toggle the collapsible section",
+        name: "members_toggle", label: "Tap the card to show or hide the member subwoofers",
         helper: "While this is on, a tap on the card does this instead of its Tap behavior (under Interactions). Icon tap behavior still works.",
         selector: { boolean: {} },
       },
       ...(this._config.members_toggle === false ? [] : [
-        { name: "members_open", label: "Show the collapsible section at load", selector: { boolean: {} } },
+        { name: "members_open", label: "Show the member subwoofers at load", selector: { boolean: {} } },
       ]),
     ];
     this._rowsForm.data = { members_toggle: this._config.members_toggle !== false, members_open: this._config.members_open !== false };
@@ -3031,7 +3030,7 @@ if (!customElements.get(CARD_TYPE)) {
   }, {
     type: PANEL_TYPE,
     name: "SVS Subwoofer panel (prototype)",
-    description: "The SVS Subwoofer card with rows for chosen subwoofers below it, on one surface.",
+    description: "The SVS Subwoofer card with its member subwoofers below it, on one surface.",
     preview: true,
     documentationURL: "https://github.com/GizmoGoody/svs-subwoofer-card#svs-subwoofer-panel-card",
   });
