@@ -1413,6 +1413,22 @@ function styleHaControl(control, attribute, on) {
   control.toggleAttribute(attribute, on);
 }
 
+// In the panel card, the cards are parts of one surface: no hover highlight
+// of their own (a tap still shows). The tile card's container sets its own
+// hover opacity on itself, so it is overridden from the tile card's shadow
+// root, where the container sits.
+const TILE_SHEET = `:host(.embedded) ha-tile-container { --ha-ripple-hover-opacity: 0; }`;
+let tileSheet;
+function styleTile(tile) {
+  const root = tile?.shadowRoot;
+  if (!root) return;
+  if (!tileSheet) {
+    tileSheet = new CSSStyleSheet();
+    tileSheet.replaceSync(TILE_SHEET);
+  }
+  if (!root.adoptedStyleSheets.includes(tileSheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, tileSheet];
+}
+
 /** All elements matching selector inside root's shadow roots, a few deep. */
 function findAllDeep(root, selector, depth = 5, out = []) {
   if (!root || depth < 0) return out;
@@ -1502,9 +1518,6 @@ class SvsCard extends HTMLElement {
         /* Features style: a flat patch of the finish's base color, or a channel
            pressed into the panel, behind each feature control */
         #areas { position: absolute; inset: 0; pointer-events: none; }
-        /* In the panel card, the cards are parts of one surface: no hover
-           highlight of their own (a tap still shows) */
-        .tile.embedded { --ha-ripple-hover-opacity: 0; }
         .area { position: absolute; box-sizing: border-box; }
         .area.flat { background: var(--flat); box-shadow: 0 0 3px 1px var(--flat); }
         .area.console {
@@ -1646,6 +1659,8 @@ class SvsCard extends HTMLElement {
     if (this._preview !== undefined) this._tile.preview = this._preview;
     if (this._layoutValue !== undefined) this._tile.layout = this._layoutValue;
     this._frame.insertBefore(this._tile, this._badge);
+    // Its shadow root and own styles are in place after its first update
+    this._tile.updateComplete?.then(() => styleTile(this._tile));
     this._layout();
   }
 
@@ -1965,6 +1980,7 @@ class SvsCard extends HTMLElement {
       this._tile.classList.toggle("light", tone === "light");
       this._tile.classList.toggle("solid", !!tone && (this._config.features_style ?? "match") !== "match");
       this._tile.classList.toggle("embedded", embedded);
+      styleTile(this._tile);
     }
     if (this._badge.classList.contains("on")) this._placeBadge();
     if (!embedded) this._paintExpander(onExpander);

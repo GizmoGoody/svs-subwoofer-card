@@ -275,7 +275,9 @@
         const name = card._config?.name;
         await until(() => /MEDIUM/.test(deepText(tile.shadowRoot)), `${name}: the preset in the state content`)
           .catch(() => { throw new Error(`${name}'s state content says: ${deepText(tile.shadowRoot)}`); });
-        const hover = getComputedStyle(tile).getPropertyValue("--ha-ripple-hover-opacity").trim();
+        // Read where the ripple reads it: the tile card's container sets its own
+        const container = await until(() => tile.shadowRoot.querySelector("ha-tile-container"), `${name}: the tile container`);
+        const hover = getComputedStyle(container).getPropertyValue("--ha-ripple-hover-opacity").trim();
         if (hover !== "0") throw new Error(`${name} highlights on hover (--ha-ripple-hover-opacity: ${hover || "unset"})`);
       }
     });
