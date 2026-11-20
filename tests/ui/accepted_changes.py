@@ -5,7 +5,10 @@ the move. A change made on purpose is listed here, as the text it replaces
 in the original card, so the comparison shows only changes nobody asked
 for. Each change must still apply, or this fails.
 
-Usage: python accepted_changes.py <original card file>
+Changes listed in FIXES are bugs the rewrite fixes. They apply only when
+the rewrite is compared (--fixes); the card before the rewrite still has them.
+
+Usage: python accepted_changes.py <original card file> [--fixes]
 """
 
 from __future__ import annotations
@@ -26,6 +29,9 @@ CHANGES = [
         "    this._badge.style.top = `${cy + r * .7071}px`;\n"
         "    this._standbyBadge.style.left = `${cx - r * .7071}px`;",
     ),
+]
+
+FIXES = [
     (
         "The driver ring has its color from the first render (K-13: it was gray until the next state change)",
         "  connectedCallback() {\n    this._layout();\n  }",
@@ -38,7 +44,8 @@ def main() -> int:
     """Apply every change to the file, or fail if one no longer applies."""
     path = Path(sys.argv[1])
     text = path.read_text(encoding="utf-8")
-    for what, before, after in CHANGES:
+    changes = CHANGES + (FIXES if "--fixes" in sys.argv[2:] else [])
+    for what, before, after in changes:
         if text.count(before) != 1:
             sys.exit(f"Accepted change no longer applies: {what}")
         text = text.replace(before, after)

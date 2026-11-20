@@ -71,7 +71,8 @@ jobs:
         run: |
           git -C card show "$ORIGINAL_CARD_REF:svs-subwoofer-card.js" > original-card.js
           # Changes made on purpose are applied to it, so only others show
-          python3 card/tests/ui/accepted_changes.py original-card.js
+          # The rewrite (dist) also fixes bugs the prototype still has
+          python3 card/tests/ui/accepted_changes.py original-card.js ${{ matrix.bundle == 'dist' && '--fixes' || '' }}
       - uses: actions/checkout@v5
         with:
           repository: dangerouslaser/svs-subwoofer-ha
